@@ -241,27 +241,33 @@ The LLM explains it; the math decides.
 ## Example input images
 
 Five ready-to-use fixture scenarios ship in `fixtures/`. Each is a complete
-three-document set (spec.png + coa.png + label.jpg) that exercises a
-different pipeline path. Click any preset in the UI to drive one end-to-end,
-or download the three images and upload them manually.
+three-document set (spec + CoA + label) that exercises a different pipeline
+path. Click any preset in the UI to drive one end-to-end, or download the
+three images and upload them manually. Thumbnails below are pre-cropped
+(auto-detect background, 8px padding) and re-encoded as WebP from
+`fixtures/thumbs/`.
 
 ### Scenario 1: Held — fish missing on the label
 
 Spec and CoA declare fish (yellowfin tuna), soy, sesame, wheat. The printed
 label only declares soy, sesame, wheat. Fish is the first ingredient but is
-missing from the CONTAINS line — held with `[fish]`. Tests synonym extraction
-("yellowfin tuna" → `fish`) and allergen canonicalization.
+missing from the `CONTAINS` line — held with `[fish]`. Tests synonym
+extraction ("yellowfin tuna" → `fish`) and allergen canonicalization.
+
+<table>
+  <tr>
+    <td align="center"><img src="fixtures/thumbs/hk-raw-tuna/spec.webp" width="400"><br/><sub>spec</sub></td>
+    <td align="center"><img src="fixtures/thumbs/hk-raw-tuna/coa.webp" width="400"><br/><sub>CoA</sub></td>
+    <td align="center"><img src="fixtures/thumbs/hk-raw-tuna/label.webp" width="400"><br/><sub>label</sub></td>
+  </tr>
+</table>
 
 | Document | Verdict |
 |---|---|
-| spec.png — Raw Ahi Tuna Poke Bowl spec sheet | declares fish, soy, sesame, wheat |
-| coa.png — Coastal Marine Foods certificate of analysis | declares FISH, SOY, SESAME, WHEAT |
-| label.jpg — printed lid label | declares SOY, SESAME, WHEAT only |
+| spec — Raw Ahi Tuna Poke Bowl | declares fish, soy, sesame, wheat |
+| CoA — Coastal Marine Foods | declares FISH, SOY, SESAME, WHEAT |
+| label — printed lid | declares SOY, SESAME, WHEAT only |
 | **Pipeline result** | **held · undeclared: [fish]** |
-
-![hk-raw-tuna spec](fixtures/hk-raw-tuna/spec.png)
-![hk-raw-tuna coa](fixtures/hk-raw-tuna/coa.png)
-![hk-raw-tuna label](fixtures/hk-raw-tuna/label.jpg)
 
 ### Scenario 2: Released — full multi-allergen declaration
 
@@ -269,16 +275,20 @@ Spec and CoA declare wheat, milk, eggs. Label declares WHEAT, MILK, EGGS
 (the full set). Diff is empty. Released. Tests the FDA `Contains:` rule and
 the clean-release path (Gemma is skipped by design to keep this path fast).
 
+<table>
+  <tr>
+    <td align="center"><img src="fixtures/thumbs/hk-multi-allergen-released/spec.webp" width="400"><br/><sub>spec</sub></td>
+    <td align="center"><img src="fixtures/thumbs/hk-multi-allergen-released/coa.webp" width="400"><br/><sub>CoA</sub></td>
+    <td align="center"><img src="fixtures/thumbs/hk-multi-allergen-released/label.webp" width="400"><br/><sub>label</sub></td>
+  </tr>
+</table>
+
 | Document | Verdict |
 |---|---|
-| spec.png — multi-allergen spec sheet | declares wheat, milk, eggs |
-| coa.png — supplier certificate of analysis | declares wheat, milk, eggs |
-| label.jpg — printed front-of-pack | declares WHEAT, MILK, EGGS |
+| spec — multi-allergen | declares wheat, milk, eggs |
+| CoA — supplier cert | declares wheat, milk, eggs |
+| label — front-of-pack | declares WHEAT, MILK, EGGS |
 | **Pipeline result** | **released · all clear** |
-
-![hk-multi-allergen-released spec](fixtures/hk-multi-allergen-released/spec.png)
-![hk-multi-allergen-released coa](fixtures/hk-multi-allergen-released/coa.png)
-![hk-multi-allergen-released label](fixtures/hk-multi-allergen-released/label.jpg)
 
 ### Scenario 3: Held — partial declaration (FDA rule)
 
@@ -287,16 +297,20 @@ allergens are missing from the label. Held with `[eggs, milk]`. Tests the
 case where the label declares *some* allergens but not all — the FDA rule
 applies regardless.
 
+<table>
+  <tr>
+    <td align="center"><img src="fixtures/thumbs/hk-multi-allergen/spec.webp" width="400"><br/><sub>spec</sub></td>
+    <td align="center"><img src="fixtures/thumbs/hk-multi-allergen/coa.webp" width="400"><br/><sub>CoA</sub></td>
+    <td align="center"><img src="fixtures/thumbs/hk-multi-allergen/label.webp" width="400"><br/><sub>label</sub></td>
+  </tr>
+</table>
+
 | Document | Verdict |
 |---|---|
-| spec.png — multi-allergen spec sheet | declares wheat, milk, eggs |
-| coa.png — supplier certificate of analysis | declares wheat, milk, eggs |
-| label.jpg — printed front-of-pack | declares WHEAT only |
+| spec — multi-allergen | declares wheat, milk, eggs |
+| CoA — supplier cert | declares wheat, milk, eggs |
+| label — front-of-pack | declares WHEAT only |
 | **Pipeline result** | **held · undeclared: [eggs, milk]** |
-
-![hk-multi-allergen spec](fixtures/hk-multi-allergen/spec.png)
-![hk-multi-allergen coa](fixtures/hk-multi-allergen/coa.png)
-![hk-multi-allergen label](fixtures/hk-multi-allergen/label.jpg)
 
 ### Scenario 4: Held — missing allergen panel
 
@@ -305,38 +319,50 @@ allergen panel is intentionally blank. The matcher treats a missing panel as
 "all three declared allergens are undeclared." Held with `[wheat, milk, eggs]`.
 Tests the difference between *missing declaration* and *incomplete document*.
 
+<table>
+  <tr>
+    <td align="center"><img src="fixtures/thumbs/hk-empty-label/spec.webp" width="400"><br/><sub>spec</sub></td>
+    <td align="center"><img src="fixtures/thumbs/hk-empty-label/coa.webp" width="400"><br/><sub>CoA</sub></td>
+    <td align="center"><img src="fixtures/thumbs/hk-empty-label/label.webp" width="400"><br/><sub>label</sub></td>
+  </tr>
+</table>
+
 | Document | Verdict |
 |---|---|
-| spec.png — vanilla cake spec sheet | declares wheat, milk, eggs |
-| coa.png — supplier certificate of analysis | declares wheat, milk, eggs |
-| label.jpg — printed box label | no allergen panel present |
+| spec — vanilla cake | declares wheat, milk, eggs |
+| CoA — supplier cert | declares wheat, milk, eggs |
+| label — box label | no allergen panel present |
 | **Pipeline result** | **held · undeclared: [wheat, milk, eggs]** |
-
-![hk-empty-label spec](fixtures/hk-empty-label/spec.png)
-![hk-empty-label coa](fixtures/hk-empty-label/coa.png)
-![hk-empty-label label](fixtures/hk-empty-label/label.jpg)
 
 ### Scenario 5: Released — tree nuts fully declared
 
 Spec and CoA declare tree nuts (almonds, cashews, hazelnuts) and wheat.
 Label declares TREE NUTS (ALMONDS, CASHEWS, HAZELNUTS), WHEAT. Diff is empty.
-Released. Tests multi-nut canonicalization (almonds → tree_nuts).
+Released. Tests multi-nut canonicalization (almonds → `tree_nuts`).
+
+<table>
+  <tr>
+    <td align="center"><img src="fixtures/thumbs/hk-tree-nuts-mix/spec.webp" width="400"><br/><sub>spec</sub></td>
+    <td align="center"><img src="fixtures/thumbs/hk-tree-nuts-mix/coa.webp" width="400"><br/><sub>CoA</sub></td>
+    <td align="center"><img src="fixtures/thumbs/hk-tree-nuts-mix/label.webp" width="400"><br/><sub>label</sub></td>
+  </tr>
+</table>
 
 | Document | Verdict |
 |---|---|
-| spec.png — maple almond granola spec sheet | declares tree nuts, wheat |
-| coa.png — supplier certificate of analysis | declares tree nuts, wheat |
-| label.jpg — printed bag label | declares tree nuts (3), wheat |
+| spec — maple almond granola | declares tree nuts, wheat |
+| CoA — supplier cert | declares tree nuts, wheat |
+| label — printed bag | declares tree nuts (3), wheat |
 | **Pipeline result** | **released · all clear** |
-
-![hk-tree-nuts-mix spec](fixtures/hk-tree-nuts-mix/spec.png)
-![hk-tree-nuts-mix coa](fixtures/hk-tree-nuts-mix/coa.png)
-![hk-tree-nuts-mix label](fixtures/hk-tree-nuts-mix/label.jpg)
 
 ### Regenerate the fixtures
 
 ```bash
+# Regenerate the input images (PNG/JPEG in fixtures/<scenario>/)
 python3 scripts/generate_fixtures.py
+
+# Re-build the README thumbnails (auto-crop + WebP, written to fixtures/thumbs/)
+python3 scripts/make_thumbs.py
 ```
 
 The generator uses Pillow + DejaVu fonts and lives in
