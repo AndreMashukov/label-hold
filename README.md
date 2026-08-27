@@ -2,9 +2,10 @@
 
 > A lot-release gate for a 12-person co-packer. Three independent documents decide
 > if a lot ships: the product spec, the supplier Certificate of Analysis, and a
-> photo of the printed label. An ADK composite agent ingests all three in parallel,
-> matches US major-9 allergens, computes a deterministic HOLD/RELEASE verdict, and
-> writes the result to Firestore. Gemma produces an executive summary on every hold.
+> photo of the printed label. An ADK composite agent ingests all three in
+> parallel, matches US major-9 allergens, computes a deterministic HOLD/RELEASE
+> verdict, and writes the result to Firestore. Gemma produces an executive
+> summary on every hold.
 
 Built for the **All Things Agentic Hackathon** (Devpost / Google) on the
 **Taskmaster** track. Deadline: 2026-08-31 5:00pm PDT.
@@ -26,6 +27,7 @@ Built for the **All Things Agentic Hackathon** (Devpost / Google) on the
   - [ADK composite graph](#adk-composite-graph)
   - [Lot data flow](#lot-data-flow)
   - [Multi-allergen set difference](#multi-allergen-set-difference)
+- [Example input images](#example-input-images)
 - [Live demo](#live-demo)
 - [Running locally](#running-locally)
 - [Cloud Run deployment](#cloud-run-deployment)
@@ -38,15 +40,16 @@ Built for the **All Things Agentic Hackathon** (Devpost / Google) on the
 
 ## What it does
 
-A QA lead drops three files (spec, CoA, label photo) into a single dashboard upload
-zone. The composite agent extracts allergens from each document, computes the
-deterministic set difference `(spec.allergens ∪ coa.allergens) − label.allergens`,
-and decides:
+A QA lead drops three files (spec, CoA, label photo) into a single dashboard
+upload zone. The composite agent extracts allergens from each document, computes
+the deterministic set difference
+`(spec.allergens ∪ coa.allergens) − label.allergens`, and decides:
 
 - **RELEASED** — the label declares everything the spec/CoA contain. Clean lot.
 - **HELD** — at least one allergen from spec or CoA is missing from the label.
-  The lot names the exact undeclared allergen(s) and publishes a `lot.held` event
-  so downstream systems (label redesign, supplier call, recall workflow) can react.
+  The lot names the exact undeclared allergen(s) and publishes a `lot.held`
+  event so downstream systems (label redesign, supplier call, recall workflow)
+  can react.
 - **HELD (incomplete_packet)** — one or more documents are empty or unreadable.
   Fail-closed: missing data never auto-releases.
 
@@ -65,172 +68,169 @@ shipping for seven months is a real recall risk at this scale.
 
 ```mermaid
 flowchart TB
-    subgraph Client["Browser"]
-        QA[QA Lead]
-        FE[React SPA<br/>apps/frontend]
+  subgraph Browser["Browser"]
+    QA["QA Lead"]
+    FE["React SPA"]
+  end
+
+  subgraph GCP["GCP project: serverless-503308 · asia-southeast1"]
+    subgraph CR["Cloud Run v2"]
+      DASH["dashboard<br/>FastAPI BFF"]
+      ADK["adk-runtime<br/>ADK composite graph"]
+      CONS["leanview-consumer<br/>Pub/Sub push handler"]
     end
-
-    subgraph GCP["GCP project: serverless-503308 · region: asia-southeast1"]
-        subgraph CloudRun["Cloud Run v2"]
-            DASH[dashboard<br/>FastAPI BFF<br/>reads lean-db]
-            ADK[adk-runtime<br/>ADK composite graph<br/>writes lots-db]
-            CONS[leanview-consumer<br/>Pub/Sub push handler<br/>writes lean-db]
-        end
-
-        subgraph Data["Firestore"]
-            LOTDB[(lots-db<br/>system of record)]
-            LEANDB[(lean-db<br/>read model<br/>lots-listen/{lot_id})]
-        end
-
-        BUS[(Pub/Sub topic<br/>label-hold-events)]
+    subgraph FS["Firestore"]
+      LOTDB[("lots-db<br/>system of record")]
+      LEANDB[("lean-db<br/>read model")]
     end
+    BUS[("Pub/Sub topic<br/>label-hold-events")]
+  end
 
-    QA -- "POST /api/run (multipart)" --> FE
-    FE -- "POST /api/run" --> DASH
-    DASH -- "POST /demo/run (proxy)" --> ADK
+  QA -- "POST /api/run" --> FE
+  FE -- "POST /api/run" --> DASH
+  DASH -- "POST /demo/run" --> ADK
 
-    ADK -- "write_lot_status_tool" --> LOTDB
-    ADK -- "publish_lot_event (fire-and-forget)" --> BUS
-    BUS -- "OIDC push subscription" --> CONS
-    CONS -- "upsert (write_id, ts)" --> LEANDB
+  ADK -- "write_lot_status_tool" --> LOTDB
+  ADK -- "publish_lot_event" --> BUS
+  BUS -- "OIDC push" --> CONS
+  CONS -- "upsert lots-listen" --> LEANDB
 
-    DASH -- "GET /api/lots (every 5s)" --> LEANDB
-    FE -- "GET /api/lots, /api/lots/{id}" --> DASH
+  DASH -- "GET /api/lots (5s poll)" --> LEANDB
+  FE -- "GET /api/lots" --> DASH
 
-    style ADK fill:#d97633,color:#fff
-    style DASH fill:#4a90c2,color:#fff
-    style CONS fill:#4a90c2,color:#fff
-    style FE fill:#7ba05b,color:#fff
-    style LOTDB fill:#c4361a,color:#fff
-    style LEANDB fill:#c4361a,color:#fff
-    style BUS fill:#888,color:#fff
+  classDef primary fill:#d97633,color:#fff,stroke:#b85a1c,stroke-width:1px
+  classDef bff fill:#4a90c2,color:#fff,stroke:#2c5f86,stroke-width:1px
+  classDef store fill:#c4361a,color:#fff,stroke:#8a1f0e,stroke-width:1px
+  classDef bus fill:#888,color:#fff,stroke:#555,stroke-width:1px
+
+  class ADK primary
+  class DASH,CONS bff
+  class LOTDB,LEANDB store
+  class BUS bus
 ```
 
-Four Cloud Run services, two Firestore databases, one Pub/Sub topic. The QA lead
-only ever talks to the React SPA; the SPA talks to the dashboard BFF; the BFF
-proxies uploads to adk-runtime. Everything else is internal to GCP.
+Four Cloud Run services, two Firestore databases, one Pub/Sub topic. The QA
+lead only ever talks to the React SPA; the SPA talks to the dashboard BFF;
+the BFF proxies uploads to adk-runtime. Everything else is internal to GCP.
 
 ### ADK composite graph
 
 ```mermaid
 flowchart TB
-    Start([lot_id + 3 documents]) --> Seq
+  START(["lot_id + 3 documents"]) --> SEQ
 
-    subgraph Seq["release_pipeline (SequentialAgent)"]
-        direction TB
-        Fan[ParallelAgent<br/>fan-out]
-        Match[matcher LlmAgent<br/>deterministic set diff]
-        Hold[LoopAgent<br/>critic + generator]
-        Summary[summarizer LlmAgent<br/>gemma-4-31b-it<br/>only fires on HELD]
-        Poster[poster LlmAgent<br/>write_lot_status_tool<br/>publish_lot_event]
+  subgraph SEQ["release_pipeline (SequentialAgent)"]
+    direction TB
+    FAN["ParallelAgent<br/>fan-out to 3 ingest agents"]
+    MATCH["matcher LlmAgent<br/>set diff on session.state"]
+    HOLD["LoopAgent<br/>critic + generator"]
+    SUM["summarizer LlmAgent<br/>gemma-4-31b-it"]
+    POST["poster LlmAgent<br/>write_lot_status_tool"]
 
-        Fan --> Match
-        Match -->|"verdict=released"| Poster
-        Match -->|"verdict=held"| Hold
-        Hold -->|"hold_loop exit"| Summary
-        Summary -->|"output_key=summary"| Poster
-    end
+    FAN --> MATCH
+    MATCH -->|verdict=released| POST
+    MATCH -->|verdict=held| HOLD
+    HOLD -->|hold_loop exit| SUM
+    SUM -->|output_key=summary| POST
+  end
 
-    subgraph FanIngest["ParallelAgent children"]
-        Spec[spec_agent<br/>output_schema=AllergenExtract<br/>output_key=spec_extract]
-        CoA[coa_agent<br/>output_schema=AllergenExtract<br/>output_key=coa_extract]
-        Label[label_agent<br/>output_schema=AllergenExtract<br/>output_key=label_extract]
-    end
+  subgraph INGEST["ParallelAgent children (ingest)"]
+    SP["spec_agent<br/>output_schema=AllergenExtract"]
+    CA["coa_agent<br/>output_schema=AllergenExtract"]
+    LB["label_agent<br/>output_schema=AllergenExtract"]
+  end
 
-    Fan --> FanIngest
+  FAN --> INGEST
 
-    Seq --> End([bus_message_id + write_id])
+  SEQ --> DONE(["bus_message_id + write_id"])
 
-    style Fan fill:#fbeede,color:#1a1815
-    style Match fill:#fbeede,color:#1a1815
-    style Hold fill:#fbeede,color:#1a1815
-    style Summary fill:#c4361a,color:#fff
-    style Poster fill:#fbeede,color:#1a1815
-    style Spec fill:#dff1e6,color:#1a1815
-    style CoA fill:#dff1e6,color:#1a1815
-    style Label fill:#dff1e6,color:#1a1815
+  classDef held fill:#fde4dd,color:#1a1815,stroke:#c4361a,stroke-width:1px
+  classDef released fill:#dff1e6,color:#1a1815,stroke:#2f7d4f,stroke-width:1px
+  classDef primary fill:#c4361a,color:#fff,stroke:#8a1f0e,stroke-width:1px
+
+  class HOLD held
+  class MATCH,POST released
+  class SUM primary
 ```
 
-The graph is a `SequentialAgent` with four children: a `ParallelAgent` that fans
-out to three ingest agents, a matcher `LlmAgent` that reads the three extracts
-from `session.state`, a `LoopAgent` that runs the critic+generator pair until the
-matcher exits with a confident HOLD or RELEASE, an optional `summarizer` that
-runs only on HELD, and finally a `poster` that writes Firestore and publishes
-the bus event.
+The graph is a `SequentialAgent` with four children: a `ParallelAgent` that
+fans out to three ingest agents, a matcher `LlmAgent` that reads the three
+extracts from `session.state`, a `LoopAgent` that runs the critic+generator
+pair until the matcher exits with a confident HOLD or RELEASE, an optional
+`summarizer` that runs only on HELD, and finally a `poster` that writes
+Firestore and publishes the bus event.
 
 Total nodes for the HELD path: 12 (3 ingest + 1 matcher + 2 hold_loop + 1
-critic_exit + 1 summarizer + 1 poster + final-state). The RELEASED path is 11
-(summarizer skipped).
+critic_exit + 1 summarizer + 1 poster + final-state). The RELEASED path is
+11 (summarizer skipped).
 
 ### Lot data flow
 
 ```mermaid
 sequenceDiagram
-    autonumber
-    participant QA as QA Lead
-    participant FE as React SPA
-    participant DASH as Dashboard BFF
-    participant ADK as adk-runtime
-    participant FS as Firestore lots-db
-    participant BUS as Pub/Sub
-    participant CONS as leanview-consumer
-    participant LEAN as Firestore lean-db
+  autonumber
+  participant QA as QA Lead
+  participant FE as React SPA
+  participant DASH as Dashboard BFF
+  participant ADK as adk-runtime
+  participant LOTDB as Firestore lots-db
+  participant BUS as Pub/Sub
+  participant CONS as leanview-consumer
+  participant LEANDB as Firestore lean-db
 
-    QA->>FE: click preset / drag files / type lot_id
-    QA->>FE: click Run
-    FE->>DASH: POST /api/run (multipart)
-    DASH->>ADK: POST /demo/run
-    ADK->>ADK: fan-out ingest (3x Gemini Flash)
-    ADK->>ADK: matcher → verdict
-    alt verdict=held
-        ADK->>ADK: hold_loop (critic + generator)
-        ADK->>ADK: summarizer (Gemma 4 31B)
-    end
-    ADK->>ADK: poster
-    ADK->>FS: write_lot_status_tool
-    ADK->>BUS: publish_lot_event (fire-and-forget)
-    ADK-->>DASH: { status, undeclared, write_id }
-    DASH-->>FE: { status, undeclared, write_id }
-    BUS->>CONS: OIDC push (lot.* event)
-    CONS->>LE..N: upsert lots-listen/{lot_id}
-    Note over FE,LEAN: FE polls /api/lots every 5s
-    FE->>DASH: GET /api/lots
-    DASH->>LEAN: order_by(ts DESC).limit(50)
-    DASH-->>FE: { count, lots }
-    FE->>FE: render new row at top of table
+  QA->>FE: click preset or upload 3 files
+  QA->>FE: click Run label hold
+  FE->>DASH: POST /api/run multipart
+  DASH->>ADK: POST /demo/run
+  ADK->>ADK: fan-out ingest (3x Gemini Flash)
+  ADK->>ADK: matcher computes verdict
+  alt verdict is held
+    ADK->>ADK: hold_loop runs critic + generator
+    ADK->>ADK: summarizer calls Gemma 4
+  end
+  ADK->>ADK: poster agent
+  ADK->>LOTDB: write_lot_status_tool
+  ADK->>BUS: publish_lot_event fire-and-forget
+  ADK-->>DASH: status, undeclared, write_id
+  DASH-->>FE: status, undeclared, write_id
+  BUS->>CONS: OIDC push lot event
+  CONS->>LEANDB: upsert lots-listen by lot_id
+  Note over FE,LEANDB: FE polls /api/lots every 5 seconds
+  FE->>DASH: GET /api/lots
+  DASH->>LEANDB: order_by ts DESC limit 50
+  DASH-->>FE: count and lots array
+  FE->>FE: render new row at top
 ```
 
-The Fire-and-forget on step 13 means a Pub/Sub outage does not fail the lot
-release — the primary write to `lots-db` already succeeded by then. The consumer
-catches up when Pub/Sub recovers. The `bus_message_id` is stamped onto the
-primary row so the consumer can dedupe redeliveries.
+The fire-and-forget on step 13 means a Pub/Sub outage does not fail the lot
+release — the primary write to `lots-db` already succeeded by then. The
+consumer catches up when Pub/Sub recovers. The `bus_message_id` is stamped
+onto the primary row so the consumer can dedupe redeliveries.
 
 ### Multi-allergen set difference
 
 ```mermaid
 flowchart LR
-    subgraph Inputs["3 documents"]
-        S["spec.png<br/>allergies declared: wheat, milk, eggs"]
-        C["coa.png<br/>allergies declared: wheat, milk, eggs"]
-        L["label.jpg<br/>CONTAINS: WHEAT"]
-    end
+  S["spec.png<br/>wheat, milk, eggs"] -->|spec_agent| SE["spec.allergens<br/>= { wheat, milk, eggs }"]
+  C["coa.png<br/>wheat, milk, eggs"] -->|coa_agent| CE["coa.allergens<br/>= { wheat, milk, eggs }"]
+  L["label.jpg<br/>CONTAINS: WHEAT"] -->|label_agent| LE["label.allergens<br/>= { wheat }"]
 
-    S -->|"spec_agent"| SE["spec.allergens = {wheat, milk, eggs}"]
-    C -->|"coa_agent"| CE["coa.allergens = {wheat, milk, eggs}"]
-    L -->|"label_agent"| LE["label.allergens = {wheat}"]
+  SE --> UNION["union<br/>= { wheat, milk, eggs }"]
+  CE --> UNION
+  UNION --> DIFF["diff<br/>= union minus label<br/>= { wheat, milk, eggs } minus { wheat }<br/>= { eggs, milk }"]
+  LE --> DIFF
 
-    SE --> UNION
-    CE --> UNION["union = {wheat, milk, eggs}"]
-    LE --> DIFF["diff = union − label<br/>= {wheat, milk, eggs} − {wheat}<br/>= {eggs, milk}"]
+  DIFF --> VERDICT{"is diff empty?"}
+  VERDICT -->|yes| REL["RELEASED<br/>all clear"]
+  VERDICT -->|no| HOLD["HELD<br/>undeclared: eggs, milk"]
 
-    UNION --> DIFF
-    DIFF --> Verdict{"|diff| == 0?"}
-    Verdict -->|"yes"| Rel[RELEASED]
-    Verdict -->|"no"| Hold[HELD<br/>undeclared = [eggs, milk]]
+  classDef held fill:#fde4dd,color:#1a1815,stroke:#c4361a,stroke-width:1px
+  classDef released fill:#dff1e6,color:#1a1815,stroke:#2f7d4f,stroke-width:1px
+  classDef diff fill:#c4361a,color:#fff,stroke:#8a1f0e,stroke-width:1px
 
-    style DIFF fill:#c4361a,color:#fff
-    style Hold fill:#c4361a,color:#fff
-    style Rel fill:#2f7d4f,color:#fff
+  class HOLD held
+  class REL released
+  class DIFF diff
 ```
 
 The set difference is computed deterministically in `label_hold/allergens.py`.
@@ -238,27 +238,125 @@ The LLM explains it; the math decides.
 
 ---
 
+## Example input images
+
+Five ready-to-use fixture scenarios ship in `fixtures/`. Each is a complete
+three-document set (spec.png + coa.png + label.jpg) that exercises a
+different pipeline path. Click any preset in the UI to drive one end-to-end,
+or download the three images and upload them manually.
+
+### Scenario 1: Held — fish missing on the label
+
+Spec and CoA declare fish (yellowfin tuna), soy, sesame, wheat. The printed
+label only declares soy, sesame, wheat. Fish is the first ingredient but is
+missing from the CONTAINS line — held with `[fish]`. Tests synonym extraction
+("yellowfin tuna" → `fish`) and allergen canonicalization.
+
+| Document | Verdict |
+|---|---|
+| spec.png — Raw Ahi Tuna Poke Bowl spec sheet | declares fish, soy, sesame, wheat |
+| coa.png — Coastal Marine Foods certificate of analysis | declares FISH, SOY, SESAME, WHEAT |
+| label.jpg — printed lid label | declares SOY, SESAME, WHEAT only |
+| **Pipeline result** | **held · undeclared: [fish]** |
+
+![hk-raw-tuna spec](fixtures/hk-raw-tuna/spec.png)
+![hk-raw-tuna coa](fixtures/hk-raw-tuna/coa.png)
+![hk-raw-tuna label](fixtures/hk-raw-tuna/label.jpg)
+
+### Scenario 2: Released — full multi-allergen declaration
+
+Spec and CoA declare wheat, milk, eggs. Label declares WHEAT, MILK, EGGS
+(the full set). Diff is empty. Released. Tests the FDA `Contains:` rule and
+the clean-release path (Gemma is skipped by design to keep this path fast).
+
+| Document | Verdict |
+|---|---|
+| spec.png — multi-allergen spec sheet | declares wheat, milk, eggs |
+| coa.png — supplier certificate of analysis | declares wheat, milk, eggs |
+| label.jpg — printed front-of-pack | declares WHEAT, MILK, EGGS |
+| **Pipeline result** | **released · all clear** |
+
+![hk-multi-allergen-released spec](fixtures/hk-multi-allergen-released/spec.png)
+![hk-multi-allergen-released coa](fixtures/hk-multi-allergen-released/coa.png)
+![hk-multi-allergen-released label](fixtures/hk-multi-allergen-released/label.jpg)
+
+### Scenario 3: Held — partial declaration (FDA rule)
+
+Spec and CoA declare wheat, milk, eggs. Label declares WHEAT only. Two
+allergens are missing from the label. Held with `[eggs, milk]`. Tests the
+case where the label declares *some* allergens but not all — the FDA rule
+applies regardless.
+
+| Document | Verdict |
+|---|---|
+| spec.png — multi-allergen spec sheet | declares wheat, milk, eggs |
+| coa.png — supplier certificate of analysis | declares wheat, milk, eggs |
+| label.jpg — printed front-of-pack | declares WHEAT only |
+| **Pipeline result** | **held · undeclared: [eggs, milk]** |
+
+![hk-multi-allergen spec](fixtures/hk-multi-allergen/spec.png)
+![hk-multi-allergen coa](fixtures/hk-multi-allergen/coa.png)
+![hk-multi-allergen label](fixtures/hk-multi-allergen/label.jpg)
+
+### Scenario 4: Held — missing allergen panel
+
+Spec and CoA declare wheat, milk, eggs. Label has the ingredient deck but the
+allergen panel is intentionally blank. The matcher treats a missing panel as
+"all three declared allergens are undeclared." Held with `[wheat, milk, eggs]`.
+Tests the difference between *missing declaration* and *incomplete document*.
+
+| Document | Verdict |
+|---|---|
+| spec.png — vanilla cake spec sheet | declares wheat, milk, eggs |
+| coa.png — supplier certificate of analysis | declares wheat, milk, eggs |
+| label.jpg — printed box label | no allergen panel present |
+| **Pipeline result** | **held · undeclared: [wheat, milk, eggs]** |
+
+![hk-empty-label spec](fixtures/hk-empty-label/spec.png)
+![hk-empty-label coa](fixtures/hk-empty-label/coa.png)
+![hk-empty-label label](fixtures/hk-empty-label/label.jpg)
+
+### Scenario 5: Released — tree nuts fully declared
+
+Spec and CoA declare tree nuts (almonds, cashews, hazelnuts) and wheat.
+Label declares TREE NUTS (ALMONDS, CASHEWS, HAZELNUTS), WHEAT. Diff is empty.
+Released. Tests multi-nut canonicalization (almonds → tree_nuts).
+
+| Document | Verdict |
+|---|---|
+| spec.png — maple almond granola spec sheet | declares tree nuts, wheat |
+| coa.png — supplier certificate of analysis | declares tree nuts, wheat |
+| label.jpg — printed bag label | declares tree nuts (3), wheat |
+| **Pipeline result** | **released · all clear** |
+
+![hk-tree-nuts-mix spec](fixtures/hk-tree-nuts-mix/spec.png)
+![hk-tree-nuts-mix coa](fixtures/hk-tree-nuts-mix/coa.png)
+![hk-tree-nuts-mix label](fixtures/hk-tree-nuts-mix/label.jpg)
+
+### Regenerate the fixtures
+
+```bash
+python3 scripts/generate_fixtures.py
+```
+
+The generator uses Pillow + DejaVu fonts and lives in
+`scripts/generate_fixtures.py`. Add a new scenario by writing a 60-line
+`render_*` function and appending it to `main()`.
+
+---
+
 ## Live demo
 
 Open **https://frontend-472857763269.asia-southeast1.run.app/** in any browser.
 
-Five preset buttons ship pre-built three-document sets (spec + CoA + label) for
-the most interesting pipeline paths:
+Five preset buttons ship pre-built three-document sets for the most
+interesting pipeline paths. Click any preset, the lot ID auto-fills, the
+three drop zones populate from the frontend's bundled fixtures, and Run is
+enabled. Within ~10-15 seconds the row appears at the top of "Recent
+verdicts".
 
-| Preset | Expected verdict | Exercises |
-|---|---|---|
-| Held (fish missing on label) | `held [fish]` | Synonym extraction: "yellowfin tuna" → fish |
-| Held (wheat + milk + eggs) | `held [eggs, milk]` | FDA partial-declaration rule |
-| Held (no allergen panel) | `held [wheat, milk, eggs]` | Missing declaration ≠ incomplete document |
-| Released (all tree nuts declared) | `released` | Clean release, Gemma skipped |
-| Released (full multi-allergen) | `released` | Full multi-allergen declaration |
-
-Click any preset. The lot ID auto-fills, the three drop zones populate from the
-frontend's bundled fixtures, and Run is enabled. Within ~10-15 seconds the row
-appears at the top of "Recent verdicts".
-
-You can also drag-and-drop your own three files (PNG/JPEG/PDF, any combo) into
-the drop zones.
+You can also drag-and-drop your own three files (PNG/JPEG/PDF, any combo)
+into the drop zones.
 
 ---
 
@@ -308,15 +406,16 @@ REPO=label-hold-apps-dev \
   bash scripts/deploy_all.sh
 ```
 
-`deploy_all.sh` rebuilds adk-runtime → leanview-consumer → dashboard in order,
-each via Cloud Build. Each step is idempotent: re-running on an unchanged tree
-just re-pins the same digest. Set `SKIP_PIN=1` to build only without pinning a
-new revision.
+`deploy_all.sh` rebuilds adk-runtime → leanview-consumer → dashboard →
+frontend in order, each via Cloud Build. Each step is idempotent:
+re-running on an unchanged tree just re-pins the same digest. Set
+`SKIP_PIN=1` to build only without pinning a new revision.
 
 To add a new service to the pipeline: extend the allowlist in
-`scripts/deploy-image.sh`, add a `Dockerfile` under `apps/<app>/`, and write a
-`cloudbuild.yaml`-compatible step. The pipeline reads `terraform/scripts/cloudbuild.yaml`
-which already does the right `docker build` per `_APP_NAME` substitution.
+`scripts/deploy-image.sh`, add a `Dockerfile` under `apps/<app>/`, and write
+a `cloudbuild.yaml`-compatible step. The pipeline reads
+`terraform/scripts/cloudbuild.yaml` which already does the right
+`docker build` per `_APP_NAME` substitution.
 
 ---
 
@@ -348,8 +447,8 @@ label-hold/
 
 ## Allergen vocabulary
 
-The model is asked to extract allergens into the US major-9 set:
-**milk, eggs, fish, shellfish, tree nuts, peanuts, wheat, soy, sesame**.
+The model is asked to extract allergens into the US major-9 set: **milk,
+eggs, fish, shellfish, tree nuts, peanuts, wheat, soy, sesame**.
 
 `label_hold/allergens.py` provides a defensive second-pass normalizer that
 maps common synonyms to canonical form before the set difference:
@@ -372,49 +471,53 @@ normalizer is the second line of defense for stragglers.
 
 ## Design decisions
 
-- **Composite graph at the root, single matcher downstream.** A `SequentialAgent`
-  that contains a `ParallelAgent` keeps the topology explicit and lets the matcher
-  read three structured extracts from `session.state` rather than getting them
-  jammed into one prompt.
-- **Deterministic set difference decides; model explains.** The matcher's LLM
-  produces a textual reasoning, but the verdict is computed in
-  `label_hold/allergens.undeclared()`. Same precedence as a rule service: model
-  can explain, never override.
-- **Two Firestores: `lots-db` is the system of record, `lean-db` is the read model.**
-  Only `adk-runtime` writes `lots-db`. Only `leanview-consumer` writes
-  `lean-db`. The dashboard reads `lean-db` via `lots-listen/` with `order_by(ts
-  DESC)`. This is the CPCQ publish-consume pattern.
-- **Pub/Sub is fire-and-forget from the poster.** `publish_lot_event()` swallows
-  errors and stamps `bus_message_id` onto the Firestore row. A Pub/Sub outage
-  cannot fail a lot release.
-- **Gemma only fires on HELD.** Released lots skip the second-model call entirely
-  to keep the clean path fast and avoid burning Gemma quota.
+- **Composite graph at the root, single matcher downstream.** A
+  `SequentialAgent` that contains a `ParallelAgent` keeps the topology
+  explicit and lets the matcher read three structured extracts from
+  `session.state` rather than getting them jammed into one prompt.
+- **Deterministic set difference decides; model explains.** The matcher's
+  LLM produces a textual reasoning, but the verdict is computed in
+  `label_hold/allergens.undeclared()`. Same precedence as a rule service:
+  model can explain, never override.
+- **Two Firestores: `lots-db` is the system of record, `lean-db` is the
+  read model.** Only `adk-runtime` writes `lots-db`. Only
+  `leanview-consumer` writes `lean-db`. The dashboard reads `lean-db` via
+  `lots-listen/` with `order_by(ts DESC)`. This is the CPCQ
+  publish-consume pattern.
+- **Pub/Sub is fire-and-forget from the poster.** `publish_lot_event()`
+  swallows errors and stamps `bus_message_id` onto the Firestore row. A
+  Pub/Sub outage cannot fail a lot release.
+- **Gemma only fires on HELD.** Released lots skip the second-model call
+  entirely to keep the clean path fast and avoid burning Gemma quota.
 - **Idempotent on `lot_id`.** Replaying a lot on the same `lot_id` produces
-  exactly one row in `lots/` and one row in `lots-listen/` with the same `write_id`.
+  exactly one row in `lots/` and one row in `lots-listen/` with the same
+  `write_id`.
 
 ---
 
 ## Operational notes
 
-- **Build context.** Cloud Build tarball is gated by `.gcloudignore` at repo
-  root. Without it, each build ships ~500 MiB of `.venv` + `node_modules` +
-  fixtures. With it, ~370 KiB / 13 files.
-- **Per-app Dockerfiles only `COPY` their own subtree.** The build sends the
-  whole repo but each image only carries what it needs. Tradeoff vs. aggressive
-  exclusion that risks accidentally omitting the app under construction.
-- **Token bootstrap for `gcloud` SDK calls.** Inside the build container, `gcloud`
-  CLI calls need `CLOUDSDK_AUTH_ACCESS_TOKEN` populated; ADC alone is not enough.
-  `scripts/gcloud-wrap.sh` handles this. Always use command substitution, never
-  inline-prefix with the long token — the redaction filter corrupts the latter.
-- **Cloud Run IAM propagation is slow.** Pub/Sub pushes fail for 60-120s after
-  a new binding is applied. Wait, then retry.
-- **Firestore `order_by(ts DESC)` requires the field to exist on every row.**
-  Stale rows pre-dating the field break the query. Only use it when you control
-  all writers (the leanview-consumer).
+- **Build context.** Cloud Build tarball is gated by `.gcloudignore` at
+  repo root. Without it, each build ships ~500 MiB of `.venv` +
+  `node_modules` + fixtures. With it, ~370 KiB / 13 files.
+- **Per-app Dockerfiles only `COPY` their own subtree.** The build sends
+  the whole repo but each image only carries what it needs. Tradeoff vs.
+  aggressive exclusion that risks accidentally omitting the app under
+  construction.
+- **Token bootstrap for `gcloud` SDK calls.** Inside the build container,
+  `gcloud` CLI calls need `CLOUDSDK_AUTH_ACCESS_TOKEN` populated; ADC alone
+  is not enough. `scripts/gcloud-wrap.sh` handles this. Always use command
+  substitution, never inline-prefix with the long token — the redaction
+  filter corrupts the latter.
+- **Cloud Run IAM propagation is slow.** Pub/Sub pushes fail for 60-120s
+  after a new binding is applied. Wait, then retry.
+- **Firestore `order_by(ts DESC)` requires the field to exist on every
+  row.** Stale rows pre-dating the field break the query. Only use it when
+  you control all writers (the leanview-consumer).
 
 See `AGENTS.md` for the full day-by-day build log and accumulated gotchas.
 
 ---
 
-Built for the All Things Agentic Hackathon (Google, Devpost, Taskmaster track).
-2026-08-31 deadline.
+Built for the All Things Agentic Hackathon (Google, Devpost, Taskmaster
+track). 2026-08-31 deadline.
