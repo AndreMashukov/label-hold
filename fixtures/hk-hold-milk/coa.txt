@@ -1,0 +1,25 @@
+SUPPLIER CERTIFICATE OF ANALYSIS
+==================================
+Supplier:    Pacific Ingredients Co.
+Lot ID:       HK-HOLD-MILK
+CoA Ref:      PIC-2026-08-22-1142
+Issued:       2026-08-22
+
+LAB RESULTS (panel of allergen-specific ELISAs):
+  Milk protein            :  POSITIVE  (3.4 ppm casein-equivalent)
+  Egg protein             :  negative  (<0.5 ppm)
+  Fish protein            :  POSITIVE  (1.1 ppm; consistent with anchovy)
+  Crustacean shellfish    :  negative
+  Tree nut                :  negative
+  Peanut                  :  negative
+  Wheat gluten            :  negative  (<5 ppm)
+  Soy                     :  negative
+  Sesame                  :  negative
+
+INTERPRETATION:
+  Dairy present (lab-confirmed). Test panel is consistent with the recipe's
+  declared butter and whey, and with the anchovy in the Worcestershire.
+
+SIGNED:
+  Dr. M. Larsen, Lab Director
+  Pacific Ingredients Co.

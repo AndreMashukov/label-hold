@@ -1,0 +1,16 @@
+[project]
+name = "adk-runtime"
+version = "0.1.0"
+description = "Label Hold ADK Control Service (Day 1: graph + canned ingest)."
+requires-python = ">=3.12"
+dependencies = [
+  "google-adk[extensions]>=2.7.1",
+  "google-cloud-firestore>=2.20.0",
+  "google-cloud-pubsub>=2.27.0",
+  "google-cloud-storage>=2.18.0",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.32",
+  "pydantic>=2.9",
+  "python-multipart>=0.0.20",
+  "httpx>=0.27",
+]

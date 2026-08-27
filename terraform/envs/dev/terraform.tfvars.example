@@ -1,0 +1,17 @@
+project_id            = "serverless-503308"
+region                = "asia-southeast1"
+env                   = "dev"
+artifact_registry_repo = "label-hold-apps-dev"
+
+# Update after each `gcloud builds submit` with the resulting digest.
+# Format: asia-southeast1-docker.pkg.dev/<project>/<repo>/<image>@sha256:<digest>
+adk_runtime_image = ""
+leanview_image   = ""
+dashboard_image   = ""
+
+common_env_vars = {
+  ENV = "dev"
+}
+
+# Dev-only. Empty = smoke-test bypass disabled.
+smoke_test_key = ""

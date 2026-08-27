@@ -1,0 +1,26 @@
+PRODUCT SPEC SHEET
+====================
+Product:   Harbor Kitchen Original BBQ Sauce
+Lot ID:    HK-RELEASE
+Recipe ID: HK-BBQ-01
+Issued:    2026-08-15
+
+INGREDIENTS (descending order of weight):
+  Tomato paste (52%)
+  Brown sugar
+  Apple cider vinegar
+  Honey (6%)
+  Molasses
+  Modified food starch (corn)
+  Salt
+  Onion powder
+  Garlic powder
+  Smoke flavor (natural)
+  Spices
+  Caramel color
+
+NOTES FOR QA:
+  - This recipe is free of all FDA major-9 allergens.
+  - The modified food starch is corn-derived, not wheat.
+  - No dairy, no eggs, no fish, no soy, no nuts, no sesame.
+  - Compliant with all current FDA labeling rules.

@@ -1,0 +1,28 @@
+PRODUCT SPEC SHEET
+====================
+Product:   Harbor Kitchen Honey BBQ Sauce
+Lot ID:    HK-HOLD-MILK
+Recipe ID: HK-BBQ-04
+Issued:    2026-08-15
+
+INGREDIENTS (descending order of weight):
+  Tomato paste (47%)
+  Brown sugar
+  Apple cider vinegar
+  Honey (8%)
+  Molasses
+  Worcestershire sauce (contains anchovy)
+  Butter (milk-derived)
+  Whey protein concentrate (milk-derived)
+  Salt
+  Onion powder
+  Garlic powder
+  Smoke flavor (natural)
+  Spices
+
+NOTES FOR QA:
+  - Recipe contains dairy-derived ingredients (butter, whey). Both are milk
+    class per FDA major-9 allergen classification.
+  - Worcestershire contains anchovy (fish class).
+  - Recipe is unchanged from prior lots HK-HOLD-MILK-001..003, all of which
+    shipped with the same dairy ingredients and a compliant label.

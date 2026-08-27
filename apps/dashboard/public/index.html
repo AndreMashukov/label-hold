@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Label Hold — Lot Release Gate</title>
+  <style>
+    :root {
+      --bg: #f7f5f0;
+      --paper: #ffffff;
+      --ink: #1f2024;
+      --ink-muted: #5e6068;
+      --line: #e6e2d8;
+      --green: #1f7a4d;
+      --green-bg: #e7f5ec;
+      --amber: #b35400;
+      --amber-bg: #fbf0dc;
+      --red: #b03030;
+      --red-bg: #f8e1e1;
+      --shadow: 0 1px 2px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.04);
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 1.5rem;
+      background: var(--bg);
+      color: var(--ink);
+      font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    }
+    header {
+      max-width: 1100px; margin: 0 auto 1.5rem auto;
+      display: flex; align-items: baseline; justify-content: space-between;
+      border-bottom: 1px solid var(--line); padding-bottom: 1rem;
+    }
+    h1 { font-size: 1.4rem; font-weight: 600; margin: 0; }
+    .lede { color: var(--ink-muted); font-size: 0.92rem; margin-top: 0.3rem; }
+    .live-dot {
+      display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+      background: var(--green); margin-right: 0.4rem;
+      box-shadow: 0 0 0 4px var(--green-bg);
+    }
+    main { max-width: 1100px; margin: 0 auto; }
+    .row {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem;
+    }
+    @media (max-width: 800px) { .row { grid-template-columns: 1fr; } }
+    section {
+      background: var(--paper); border-radius: var(--radius); padding: 1.25rem;
+      box-shadow: var(--shadow);
+    }
+    section h2 { font-size: 1.0rem; margin: 0 0 1rem 0; font-weight: 600; }
+    .drop {
+      border: 2px dashed var(--line); border-radius: var(--radius);
+      padding: 1.5rem; text-align: center; color: var(--ink-muted);
+      transition: border-color 0.15s, background 0.15s;
+      cursor: pointer;
+    }
+    .drop.dragover { border-color: var(--green); background: var(--green-bg); color: var(--ink); }
+    .drop strong { color: var(--ink); font-weight: 600; }
+    .slot {
+      display: flex; gap: 0.5rem; align-items: center;
+      margin-top: 0.75rem; padding: 0.4rem 0.6rem;
+      background: #fafaf6; border-radius: 6px; font-size: 0.85rem;
+      color: var(--ink-muted); border: 1px solid var(--line);
+    }
+    .slot.filled { color: var(--ink); background: var(--green-bg); border-color: var(--green); }
+    .slot input[type=file] { display: none; }
+    .slot label { cursor: pointer; }
+    .slot .name { font-weight: 500; }
+    input[type=text] {
+      width: 100%; padding: 0.55rem 0.7rem; font: inherit;
+      border: 1px solid var(--line); border-radius: 6px; background: var(--paper);
+    }
+    button.primary {
+      margin-top: 1rem; padding: 0.6rem 1rem; font: inherit; font-weight: 600;
+      background: var(--ink); color: white; border: none; border-radius: 6px;
+      cursor: pointer; width: 100%;
+    }
+    button.primary:disabled { background: #9a9b9f; cursor: not-allowed; }
+    button.primary:not(:disabled):hover { background: #000; }
+    .status-line { margin-top: 0.75rem; min-height: 1.4em; font-size: 0.9rem; color: var(--ink-muted); }
+    .status-line.error { color: var(--red); }
+    .status-line.success { color: var(--green); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+    th, td { padding: 0.55rem 0.7rem; text-align: left; border-bottom: 1px solid var(--line); }
+    th { font-weight: 600; color: var(--ink-muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    tr:last-child td { border-bottom: none; }
+    .pill {
+      display: inline-block; padding: 0.18rem 0.55rem; border-radius: 999px;
+      font-weight: 600; font-size: 0.78rem; letter-spacing: 0.02em;
+    }
+    .pill.released { background: var(--green-bg); color: var(--green); }
+    .pill.held     { background: var(--red-bg);   color: var(--red);   }
+    .undeclared { color: var(--red); font-weight: 500; }
+    .summary { color: var(--ink); font-size: 0.86rem; line-height: 1.35; max-width: 28rem; display: inline-block; }
+    .empty { color: var(--ink-muted); font-style: italic; }
+    footer { max-width: 1100px; margin: 1.5rem auto; color: var(--ink-muted); font-size: 0.82rem; }
+    code { background: #efece4; padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.85em; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Label Hold</h1>
+      <p class="lede">Lot-release gate for a 12-person co-packer.
+        Three documents decide if a lot ships: spec, CoA, label photo.</p>
+    </div>
+    <div><span class="live-dot"></span><span id="live-status">Live</span></div>
+  </header>
+
+  <main>
+    <div class="row">
+      <section>
+        <h2>Drop the three documents</h2>
+        <div id="drop" class="drop">
+          <div><strong>Drop files here</strong> or click to choose</div>
+          <div class="lede" style="margin-top:0.4rem;">Spec, CoA, and a photo of the printed label.</div>
+        </div>
+        <input id="lot-id" type="text" placeholder="lot_id (e.g. HK-2026-0814)" style="margin-top:1rem;" />
+        <div id="slots">
+          <div class="slot" data-role="spec">
+            <span style="min-width:80px;">Spec:</span>
+            <label><input type="file" accept=".pdf,.png,.jpg,.txt" /> choose</label>
+            <span class="name">—</span>
+          </div>
+          <div class="slot" data-role="coa">
+            <span style="min-width:80px;">CoA:</span>
+            <label><input type="file" accept=".pdf,.png,.jpg,.txt" /> choose</label>
+            <span class="name">—</span>
+          </div>
+          <div class="slot" data-role="label">
+            <span style="min-width:80px;">Label:</span>
+            <label><input type="file" accept=".pdf,.png,.jpg,.txt" /> choose</label>
+            <span class="name">—</span>
+          </div>
+        </div>
+        <button id="submit" class="primary" disabled>Run lot through gate</button>
+        <div id="status" class="status-line">Drop three files and enter a lot_id to start.</div>
+      </section>
+
+      <section>
+        <h2>Recent verdicts</h2>
+        <table id="lots-table">
+          <thead>
+            <tr>
+              <th>Lot</th><th>Verdict</th><th>Undeclared</th><th>Reason</th><th>Summary (Gemma)</th><th>Updated</th>
+            </tr>
+          </thead>
+          <tbody id="lots-body">
+            <tr><td colspan="6" class="empty">Loading…</td></tr>
+          </tbody>
+        </table>
+      </section>
+    </div>
+  </main>
+
+  <footer>
+    <p>ADK graph: <code>SequentialAgent &gt; ParallelAgent(fan_out=spec|coa|label) &gt; matcher &gt; LoopAgent(investigator &gt; critic) &gt; poster</code>.
+    Verdict is the deterministic set difference; the matcher explains but cannot override.
+    Live data via Firestore subscribe to <code>lean-db/lots-listen/</code>.</p>
+  </footer>
+
+<script>
+  const drop = document.getElementById("drop");
+  const slots = {};
+  document.querySelectorAll("#slots .slot").forEach(slot => {
+    const role = slot.dataset.role;
+    const input = slot.querySelector("input[type=file]");
+    const nameEl = slot.querySelector(".name");
+    slots[role] = { slot, input, nameEl, file: null };
+    input.addEventListener("change", () => {
+      const f = input.files[0];
+      if (f) setSlot(role, f);
+    });
+    // Allow click on the slot row to trigger the input
+    slot.addEventListener("click", (e) => {
+      if (e.target.tagName !== "INPUT") input.click();
+    });
+  });
+
+  function setSlot(role, file) {
+    slots[role].file = file;
+    slots[role].nameEl.textContent = file.name + " (" + Math.round(file.size/1024) + " KB)";
+    slots[role].slot.classList.add("filled");
+    refreshSubmit();
+  }
+
+  function refreshSubmit() {
+    const ok = !!slots.spec.file && !!slots.coa.file && !!slots.label.file
+                && document.getElementById("lot-id").value.trim().length > 0;
+    document.getElementById("submit").disabled = !ok;
+  }
+  document.getElementById("lot-id").addEventListener("input", refreshSubmit);
+
+  // Drop on the whole drop zone
+  ["dragenter", "dragover"].forEach(ev =>
+    drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("dragover"); })
+  );
+  ["dragleave", "drop"].forEach(ev =>
+    drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("dragover"); })
+  );
+  drop.addEventListener("drop", e => {
+    const files = Array.from(e.dataTransfer.files);
+    // Try to map filenames by role
+    const byName = (s) => files.find(f => f.name.toLowerCase().includes(s));
+    const specF = byName("spec") || files[0];
+    const coaF  = byName("coa")  || files[1] || files[0];
+    const labF  = byName("label")|| files[2] || files[files.length-1];
+    if (specF) setSlot("spec", specF);
+    if (coaF && coaF !== specF) setSlot("coa", coaF);
+    if (labF && labF !== specF && labF !== coaF) setSlot("label", labF);
+  });
+
+  const status = document.getElementById("status");
+  const submit = document.getElementById("submit");
+  submit.addEventListener("click", async () => {
+    const lotId = document.getElementById("lot-id").value.trim();
+    if (!lotId) return;
+    submit.disabled = true;
+    status.classList.remove("error", "success");
+    status.textContent = `Running ${lotId} through the agent…`;
+    const fd = new FormData();
+    fd.set("lot_id", lotId);
+    fd.set("spec", slots.spec.file);
+    fd.set("coa",  slots.coa.file);
+    fd.set("label", slots.label.file);
+    try {
+      const t0 = performance.now();
+      const r = await fetch("/api/run", { method: "POST", body: fd });
+      const dt = ((performance.now() - t0) / 1000).toFixed(1);
+      const j = await r.json();
+      if (!r.ok) {
+        status.classList.add("error");
+        status.textContent = `${lotId}: HTTP ${r.status} — ${j.detail || JSON.stringify(j)}`;
+      } else {
+        const verdict = j.status;
+        status.classList.add(verdict === "released" ? "success" : "error");
+        status.textContent = `${lotId}: ${verdict.toUpperCase()} in ${dt}s (write_id ${(j.write_id||"").slice(0,12)}…)`;
+        // Refresh the table immediately so the user sees the row arrive.
+        loadLots();
+      }
+    } catch (e) {
+      status.classList.add("error");
+      status.textContent = `Network error: ${e}`;
+    } finally {
+      refreshSubmit();
+    }
+  });
+
+  async function loadLots() {
+    try {
+      const r = await fetch("/api/lots");
+      const j = await r.json();
+      const tbody = document.getElementById("lots-body");
+      if (!j.lots || j.lots.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty">No lots yet. Drop three files above to run the gate.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = j.lots.map(row => {
+        const status = row.status || "?";
+        const undecl = (row.undeclared || []);
+        const reason = row.reason || "";
+        const summary = row.summary || "";
+        const updated = row.updated_at ? new Date(row.updated_at).toLocaleString() : "";
+        return `<tr>
+          <td><code>${row.lot_id}</code></td>
+          <td><span class="pill ${status}">${status.toUpperCase()}</span></td>
+          <td>${undecl.length ? `<span class="undeclared">${undecl.join(", ")}</span>` : '<span class="empty">—</span>'}</td>
+          <td>${reason}</td>
+          <td>${summary ? `<span class="summary">${summary}</span>` : '<span class="empty">—</span>'}</td>
+          <td>${updated}</td>
+        </tr>`;
+      }).join("");
+    } catch (e) {
+      document.getElementById("lots-body").innerHTML =
+        `<tr><td colspan="5" class="empty">Firestore read failed: ${e}</td></tr>`;
+    }
+  }
+  loadLots();
+  setInterval(loadLots, 5000);
+</script>
+</body>
+</html>

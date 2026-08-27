@@ -1,0 +1,25 @@
+SUPPLIER CERTIFICATE OF ANALYSIS
+==================================
+Supplier:    Pacific Ingredients Co.
+Lot ID:       HK-RELEASE
+CoA Ref:      PIC-2026-08-22-1147
+Issued:       2026-08-22
+
+LAB RESULTS (panel of allergen-specific ELISAs):
+  Milk protein            :  negative  (<0.5 ppm)
+  Egg protein             :  negative  (<0.5 ppm)
+  Fish protein            :  negative  (<0.5 ppm)
+  Crustacean shellfish    :  negative
+  Tree nut                :  negative
+  Peanut                  :  negative
+  Wheat gluten            :  negative  (<5 ppm)
+  Soy                     :  negative
+  Sesame                  :  negative
+
+INTERPRETATION:
+  No major-9 allergens detected. Lab result is consistent with the
+  ingredient declaration.
+
+SIGNED:
+  Dr. M. Larsen, Lab Director
+  Pacific Ingredients Co.

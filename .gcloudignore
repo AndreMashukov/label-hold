@@ -1,0 +1,61 @@
+# .gcloudignore — keep the build tarball small.
+# Per-app builds only COPY their own apps/<app>/ subtree (see Dockerfile).
+# So we can blanket-exclude OTHER apps entirely.
+#
+# Rule of thumb: when building apps/<APP>/, exclude apps/<OTHER>/.
+# cloudbuild.yaml sets _APP_NAME so we can use substitution-aware patterns,
+# but gcloudignore has no variable expansion. Use a manual mapping per build:
+
+# Heavy / irrelevant paths
+.venv/
+node_modules/
+.agent-browser/
+.cache/
+.config/
+.copilot/
+.cursor/
+.npm/
+.npm-global/
+.playwright/
+.serverless/
+.terraform.d/
+.pdfvenv/
+.mcp-auth/
+*.pyc
+__pycache__/
+.git/
+.gitignore
+.env
+.env.*.bak
+.hermes/
+.local/
+.adk-probe/
+.install_method
+.skills_prompt_snapshot.json
+.stitch_key
+.restart_last_processed.json
+.DS_Store
+
+# Day 0 nginx config no longer used.
+apps/dashboard/nginx.conf
+
+# Fixtures outside the two we bundle in the dashboard image.
+fixtures/hk-hold-milk/
+fixtures/hk-release/
+fixtures/hk-incomplete/
+fixtures/hk-hold-milk-v2-binary/
+fixtures/hk-synonym-stress/
+
+# Per-fixture READMEs (not needed for build context).
+fixtures/*/README.md
+
+# Tests run elsewhere.
+tests/
+
+# Companion docs not needed at build time.
+hackathon/
+
+# NOTE: We deliberately keep ALL of apps/ in the tarball so that builds of any
+# one app can find its Dockerfile. Each app's Dockerfile only COPYs its own
+# subtree, so the unused app dirs are uploaded but never read by Docker.
+# This is a tradeoff vs. more aggressive exclusion that risks breaking builds.

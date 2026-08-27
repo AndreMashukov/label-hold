@@ -1,0 +1,53 @@
+# Exclude heavy / irrelevant paths from the Cloud Build tarball.
+.venv/
+node_modules/
+.agent-browser/
+.cache/
+.config/
+.copilot/
+.cursor/
+.npm/
+.npm-global/
+.playwright/
+.serverless/
+.terraform.d/
+.pdfvenv/
+.mcp-auth/
+*.pyc
+__pycache__/
+.git/
+.gitignore
+.env
+.env.*.bak
+.hermes/
+.local/
+.adk-probe/
+.install_method
+.skills_prompt_snapshot.json
+.stitch_key
+.restart_last_processed.json
+.DS_Store
+
+# Only ship the dashboard app's deps for this build.
+apps/adk-runtime/.venv/
+apps/dashboard/.venv/
+apps/leanview-consumer/.venv/
+
+# Drop the adk-runtime and leanview-consumer Dockerfiles from this build.
+apps/adk-runtime/Dockerfile
+apps/leanview-consumer/Dockerfile
+
+# Fixtures outside the two we bundle.
+fixtures/hk-hold-milk/
+fixtures/hk-release/
+fixtures/hk-incomplete/
+fixtures/hk-hold-milk-v2-binary/
+fixtures/hk-synonym-stress/
+fixtures/hk-multi-allergen/README.md
+fixtures/hk-multi-allergen-released/README.md
+
+# Day 0 nginx config no longer used.
+apps/dashboard/nginx.conf
+
+# Tests run elsewhere.
+tests/

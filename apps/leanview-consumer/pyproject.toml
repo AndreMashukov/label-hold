@@ -1,0 +1,10 @@
+[project]
+name = "lean-view-consumer"
+version = "0.0.1"
+description = "Label Hold Pub/Sub push -> Firestore lots-listen materializer (stub)."
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.32",
+  "google-cloud-firestore>=2.20.0",
+]

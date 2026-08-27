@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Label Hold — Proof of Action</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+      background: #0e0f12;
+      color: #e6e6e6;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 1px;
+      height: 100vh;
+    }
+    .pane {
+      background: #16181d;
+      padding: 1rem;
+      overflow-y: auto;
+      border-right: 1px solid #2a2c33;
+    }
+    .pane:last-child { border-right: none; }
+    h2 {
+      margin: 0 0 0.6rem 0;
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #7c7f8a;
+    }
+    .url {
+      font-size: 0.72rem;
+      color: #5fb3ff;
+      word-break: break-all;
+      padding: 0.5rem 0.6rem;
+      background: #0e0f12;
+      border-radius: 4px;
+      margin-bottom: 0.8rem;
+      border: 1px solid #2a2c33;
+    }
+    pre.log {
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 12px;
+      color: #cfd0d4;
+    }
+    .ok    { color: #6dd58c; }
+    .err   { color: #ff7575; }
+    .warn  { color: #f0c000; }
+    .muted { color: #7c7f8a; }
+    .step  { color: #5fb3ff; font-weight: 600; }
+    .label {
+      display: inline-block; padding: 0.15rem 0.5rem; border-radius: 999px;
+      font-size: 0.72rem; font-weight: 600; letter-spacing: 0.04em;
+    }
+    .label.held     { background: #4a1f1f; color: #ff9b9b; }
+    .label.released { background: #1f3a26; color: #6dd58c; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid #2a2c33; }
+    th { color: #7c7f8a; font-weight: 500; font-size: 0.7rem; text-transform: uppercase; }
+  </style>
+</head>
+<body>
+  <div class="grid">
+
+    <!-- LEFT: terminal log -->
+    <div class="pane">
+      <h2>1. Terminal — POST /api/run</h2>
+      <div class="url" id="url">https://dashboard-hnvjxkvfoq-as.a.run.app/api/run</div>
+      <pre class="log" id="log"></pre>
+    </div>
+
+    <!-- MIDDLE: dashboard verdicts -->
+    <div class="pane">
+      <h2>2. Dashboard — live verdicts</h2>
+      <div class="url">https://dashboard-hnvjxkvfoq-as.a.run.app</div>
+      <table id="lots">
+        <thead><tr><th>Lot</th><th>Verdict</th><th>Undeclared</th></tr></thead>
+        <tbody id="lots-body"><tr><td colspan="3" class="muted">Loading…</td></tr></tbody>
+      </table>
+    </div>
+
+    <!-- RIGHT: Firestore raw read -->
+    <div class="pane">
+      <h2>3. Firestore — lean-db/lots-listen/</h2>
+      <div class="url">projects/serverless-503308/databases/lean-db/documents/lots-listen</div>
+      <pre class="log" id="fs"></pre>
+    </div>
+
+  </div>
+
+<script>
+const log = document.getElementById("log");
+const fs  = document.getElementById("fs");
+function append(msg, cls = "") {
+  const t = new Date().toLocaleTimeString();
+  log.innerHTML += `<span class="muted">[${t}]</span> <span class="${cls}">${msg}</span>\n`;
+  log.parentElement.scrollTop = log.parentElement.scrollHeight;
+}
+function fs_append(json) {
+  fs.innerHTML += JSON.stringify(json, null, 2) + "\n\n";
+}
+
+const DASH = "https://dashboard-hnvjxkvfoq-as.a.run.app";
+const FIX  = "/opt/data/serverless/label-hold/fixtures/hk-multi-allergen";
+
+async function runLot(lotId, fixtureRoot, ext) {
+  const fd = new FormData();
+  fd.set("lot_id", lotId);
+  fd.set("spec",   new File([await fetch(`${DASH}/static/__not_used`).catch(() => null)], "_"),
+                 /* noop */);
+  // The dashboard only accepts multipart from /api/run; here we just trigger
+  // by calling the endpoint with real fetched files. We rely on the
+  // dashboard serving the static fixtures under /static/ for the demo.
+  // (For local dev: serve fixtures/hk-multi-allergen/* over the same origin.)
+  append(`Fetching ${lotId} fixtures from ${fixtureRoot}…`, "step");
+  const [spec, coa, label] = await Promise.all([
+    fetch(`${fixtureRoot}/spec.${ext}`).then(r => r.blob()),
+    fetch(`${fixtureRoot}/coa.${ext}`).then(r => r.blob()),
+    fetch(`${fixtureRoot}/label.${ext === "png" ? "jpg" : ext}`).then(r => r.blob()),
+  ]);
+  fd.set("spec", new File([spec], `spec.${ext}`));
+  fd.set("coa",  new File([coa],  `coa.${ext}`));
+  fd.set("label",new File([label],`label.${ext === "png" ? "jpg" : ext}`));
+
+  append(`POST /api/run lot_id=${lotId} spec=${ext} coa=${ext} label=${ext === "png" ? "jpg" : ext}`, "step");
+  const t0 = performance.now();
+  const r = await fetch("/api/run", { method: "POST", body: fd });
+  const dt = ((performance.now() - t0) / 1000).toFixed(1);
+  const j = await r.json();
+  if (!r.ok) {
+    append(`HTTP ${r.status} — ${JSON.stringify(j).slice(0, 200)}`, "err");
+    return;
+  }
+  append(`HTTP 200 in ${dt}s — status=${j.status} write_id=${j.write_id.slice(0,12)}… bus_message_id=${j.bus_message_id}`, "ok");
+  append(`  events=${j.events}  sizes=${JSON.stringify(j.sizes)}`, "muted");
+  return j;
+}
+
+async function pollLots() {
+  const r = await fetch("/api/lots");
+  const j = await r.json();
+  const tbody = document.getElementById("lots-body");
+  if (!j.lots.length) {
+    tbody.innerHTML = '<tr><td colspan="3" class="muted">No lots yet</td></tr>';
+    return;
+  }
+  tbody.innerHTML = j.lots.map(r => `
+    <tr>
+      <td>${r.lot_id}</td>
+      <td><span class="label ${r.status}">${r.status.toUpperCase()}</span></td>
+      <td>${(r.undeclared || []).join(", ") || '<span class="muted">—</span>'}</td>
+    </tr>`).join("");
+}
+
+async function loadOne(lotId) {
+  const r = await fetch(`/api/lots/${encodeURIComponent(lotId)}`);
+  const j = await r.json();
+  fs_append(j);
+}
+
+async function main() {
+  append("Label Hold — Proof of Action session starting", "step");
+  append(`Dashboard: ${DASH}`, "muted");
+  append("", "muted");
+
+  await pollLots();
+  setInterval(pollLots, 4000);
+
+  // Demo sequence
+  append("=== Lot 1: held (multi-allergen partial declaration) ===", "step");
+  const r1 = await runLot("HK-DEMO-MULTI", "/fixtures/hk-multi-allergen", "png");
+  if (r1) await loadOne(r1.lot_id);
+
+  await new Promise(r => setTimeout(r, 4000));
+
+  append("", "muted");
+  append("=== Lot 2: released (full declaration) ===", "step");
+  const r2 = await runLot("HK-DEMO-FULL-REL", "/fixtures/hk-multi-allergen-released", "png");
+  if (r2) await loadOne(r2.lot_id);
+}
+main();
+</script>
+</body>
+</html>
