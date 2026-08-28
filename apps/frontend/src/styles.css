@@ -268,8 +268,35 @@ a.link:hover {
   background: var(--primary-soft);
   border-color: var(--primary);
 }
+.preset-btn.is-active {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+  color: var(--text);
+}
 .preset-btn:disabled {
   opacity: 0.5;
+  cursor: not-allowed;
+}
+.form-error {
+  display: block;
+  margin-top: var(--space-2);
+  font-size: 13px;
+  color: var(--held);
+}
+
+.dropzone-thumb {
+  width: 100%;
+  max-height: 96px;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+}
+
+.upload-actions .secondary-btn {
+  padding: 12px 16px;
+  font-weight: 600;
+}
+.secondary-btn:disabled {
+  opacity: 0.45;
   cursor: not-allowed;
 }
 

@@ -214,7 +214,14 @@ export default function App() {
         </section>
 
         <section className="grid">
-          <UploadPanel onRun={handleRun} loading={loading} />
+          <UploadPanel
+            onRun={handleRun}
+            onClear={() => {
+              setLastRun(null);
+              setError(null);
+            }}
+            loading={loading}
+          />
           {lastRun && (
             <div className={`status-pill status-${lastRun.status}`}>
               <span className="pill-label">Latest run</span>
