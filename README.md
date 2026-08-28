@@ -33,6 +33,7 @@ Built for the **All Things Agentic Hackathon** (Devpost / Google) on the
 - [Cloud Run deployment](#cloud-run-deployment)
 - [Repository layout](#repository-layout)
 - [Allergen vocabulary](#allergen-vocabulary)
+- [Evaluation notes](EVALS.md)
 - [Design decisions](#design-decisions)
 - [Operational notes](#operational-notes)
 
@@ -497,8 +498,10 @@ maps common synonyms to canonical form before the set difference:
 | soy | soybean, soya, edamame, tofu |
 | sesame | tahini |
 
-Gemini Flash's structured output also canonicalizes on its own — the Python
-normalizer is the second line of defense for stragglers.
+Gemini Flash's structured output also canonicalizes on its own. The Python
+normalizer is the second line of defense for stragglers. The closed alias
+table and fixture expectations are in `EVALS.md` (the README table is a
+summary; the code map is the source of truth).
 
 ---
 
