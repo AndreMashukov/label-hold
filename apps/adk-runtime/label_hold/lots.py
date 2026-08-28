@@ -1,8 +1,19 @@
 """Firestore lots/{lot_id} writer.
 
 `lots/` is the system of record. Only the ADK agent (via write_lot_status)
-writes here. The leanview-consumer watches the bus event and writes the
-denormalized snapshot to `lots-listen/` separately. See PLAN §2.
+writes here. The Firestore Eventarc trigger on this collection is the sole
+publisher of lot.* events to the bus (see terraform/modules/bff-service,
+enable_firestore_trigger = true on the adk-runtime module). The trigger
+delivers DocumentEventData to /__eventarc/publish on this same service,
+which publishes lot.held / lot.released to label-hold-events.
+
+Splitting the write and the publish means the write is never lost or
+double-counted: it happens in one Firestore set, and the trigger fires
+exactly once per committed write. The publish call lives in a separate
+process and is retried by Pub/Sub on transient failure.
+
+The leanview-consumer is the only thing that writes lots-listen/. The
+dashboard BFF reads lots-listen via Firestore listen() (see /api/stream).
 """
 from __future__ import annotations
 
@@ -45,7 +56,11 @@ async def write_lot_status(
 ) -> dict[str, Any]:
     """Upsert lots/{lot_id}. Idempotent on lot_id: re-running produces one row.
 
-    Returns the merged document so the caller can confirm the write.
+    Returns the merged document so the caller can confirm the write. The
+    Firestore write is the ONLY side effect of this function — no inline
+    bus publish, no second Firestore stamp. The Firestore Eventarc trigger
+    is the sole producer of bus events for this collection; see the module
+    docstring above.
     """
     if status not in ("held", "released"):
         raise ValueError(f"status must be 'held' or 'released', got {status!r}")
@@ -67,30 +82,7 @@ async def write_lot_status(
     }
     # `set(..., merge=True)` is the idempotency guarantee from PLAN §10 risks.
     await doc_ref.set(payload, merge=True)
-
-    # Publish a lot.* event to the bus so the leanview-consumer can materialize
-    # the lean read model. Bus failures are swallowed inside publish_lot_event;
-    # the Firestore write is the system of record and must not roll back.
-    bus_message_id: str | None = None
-    try:
-        from label_hold.bus import publish_lot_event
-        bus_message_id = publish_lot_event(
-            lot_id=lot_id,
-            status=status,
-            undeclared=payload["undeclared"],
-            reason=reason,
-            write_id=payload["write_id"],
-            missing_document=bool(missing_document),
-            summary=str(summary or ""),
-        )
-        if bus_message_id:
-            # Stamp the bus message_id into the Firestore row so the lean view
-            # can dedupe replays without an extra round-trip to Pub/Sub.
-            await doc_ref.set({"bus_message_id": bus_message_id}, merge=True)
-            payload["bus_message_id"] = bus_message_id
-    except Exception as e:  # noqa: BLE001  (defense-in-depth; publish_lot_event swallows)
-        logger.exception("bus.publish wrapper failed lot=%s: %r", lot_id, e)
-
+    logger.info("lots.write ok lot=%s status=%s write_id=%s", lot_id, status, payload["write_id"])
     return payload
 
 

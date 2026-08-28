@@ -136,6 +136,17 @@ a.link:hover {
   gap: var(--space-4);
 }
 
+.live-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.live-dot.live { background: #16a34a; box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.18); }
+.live-dot.dead { background: #9ca3af; box-shadow: 0 0 0 3px rgba(156, 163, 175, 0.18); }
+
 .theme-toggle {
   display: inline-flex;
   border: 1px solid var(--border);

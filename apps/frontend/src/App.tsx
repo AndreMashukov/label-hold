@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { listLots, runLot, getLot, type LotRow, type RunResult } from "./api";
+import { listLots, runLot, getLot, url, type LotRow, type RunResult } from "./api";
 import { UploadPanel } from "./components/UploadPanel";
 import { VerdictsTable } from "./components/VerdictsTable";
 import { ThemeToggle } from "./components/ThemeToggle";
@@ -7,7 +7,11 @@ import { LotDetail } from "./components/LotDetail";
 
 type Theme = "light" | "dark" | "system";
 
-const POLL_INTERVAL_MS = 5000;
+type StreamChange = {
+  lot_id: string;
+  type: "ADDED" | "MODIFIED" | "REMOVED";
+  row?: LotRow;
+};
 
 export default function App() {
   const [lots, setLots] = useState<LotRow[]>([]);
@@ -19,7 +23,9 @@ export default function App() {
     if (typeof window === "undefined") return "system";
     return (localStorage.getItem("lh-theme") as Theme) ?? "system";
   });
-  const pollHandle = useRef<number | null>(null);
+  // Connection state for the /api/stream SSE feed.
+  const [streamConnected, setStreamConnected] = useState(false);
+  const streamRef = useRef<EventSource | null>(null);
 
   // Apply theme to <html> data-theme attribute.
   useEffect(() => {
@@ -36,37 +42,121 @@ export default function App() {
     localStorage.setItem("lh-theme", theme);
   }, [theme]);
 
-  // Poll /api/lots every 5s. Stops when the tab is hidden.
-  const refresh = useCallback(async () => {
-    try {
-      const rows = await listLots();
-      setLots(rows);
-      setError(null);
-    } catch (e: any) {
-      setError(e?.message ?? String(e));
-    }
+  // Open an SSE connection to /api/stream. The server holds a Firestore
+  // on_snapshot() watch on lots-listen/, so every lean-row write appears
+  // in this EventSource in real time. Reconnect on error; pause when the
+  // tab is hidden.
+  const mergeRow = useCallback((row: LotRow) => {
+    setLots((prev) => {
+      const without = prev.filter((r) => r.lot_id !== row.lot_id);
+      return [row, ...without];
+    });
+  }, []);
+  const removeRow = useCallback((lot_id: string) => {
+    setLots((prev) => prev.filter((r) => r.lot_id !== lot_id));
   }, []);
 
   useEffect(() => {
-    refresh();
+    let cancelled = false;
+    let es: EventSource | null = null;
+    let retryTimer: number | null = null;
+
+    const connect = () => {
+      if (cancelled) return;
+      try {
+        es = new EventSource(url("/api/stream"), { withCredentials: false });
+      } catch (e) {
+        // EventSource constructor doesn't normally throw; treat as fatal.
+        setError(`EventSource ctor failed: ${String(e)}`);
+        return;
+      }
+      streamRef.current = es;
+      es.addEventListener("open", () => setStreamConnected(true));
+      es.addEventListener("error", () => {
+        // The browser will auto-reconnect, but it never gets a chance if
+        // the stream is in an error state. Close + retry after a beat.
+        setStreamConnected(false);
+        if (es) {
+          es.close();
+          es = null;
+          streamRef.current = null;
+        }
+        if (!cancelled) {
+          retryTimer = window.setTimeout(connect, 2000);
+        }
+      });
+      es.addEventListener("snapshot", (ev: MessageEvent) => {
+        try {
+          const msg = JSON.parse(ev.data) as { rows: LotRow[] };
+          setLots(Array.isArray(msg.rows) ? msg.rows : []);
+        } catch {
+          /* ignore parse errors */
+        }
+      });
+      es.addEventListener("change", (ev: MessageEvent) => {
+        try {
+          const msg = JSON.parse(ev.data) as StreamChange;
+          if (msg.type === "REMOVED") {
+            removeRow(msg.lot_id);
+          } else if (msg.row) {
+            mergeRow(msg.row);
+          }
+        } catch {
+          /* ignore parse errors */
+        }
+      });
+    };
+
     const start = () => {
-      if (pollHandle.current != null) return;
-      pollHandle.current = window.setInterval(refresh, POLL_INTERVAL_MS);
+      if (streamRef.current) return;
+      connect();
     };
     const stop = () => {
-      if (pollHandle.current != null) {
-        window.clearInterval(pollHandle.current);
-        pollHandle.current = null;
+      cancelled = true;
+      if (retryTimer != null) {
+        window.clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+      if (streamRef.current) {
+        streamRef.current.close();
+        streamRef.current = null;
+        setStreamConnected(false);
       }
     };
-    const onVis = () => (document.hidden ? stop() : (refresh(), start()));
+
     start();
+    const onVis = () => {
+      if (document.hidden) {
+        stop();
+      } else {
+        cancelled = false;
+        start();
+      }
+    };
     document.addEventListener("visibilitychange", onVis);
     return () => {
       stop();
       document.removeEventListener("visibilitychange", onVis);
     };
-  }, [refresh]);
+  }, [mergeRow, removeRow]);
+
+  // Fallback: if the SSE feed hasn't delivered a snapshot within 8s of
+  // mount, do a one-shot /api/lots fetch so the UI never appears empty.
+  // The streaming feed will then take over (it sends its own initial
+  // snapshot event on connect).
+  useEffect(() => {
+    const timer = window.setTimeout(async () => {
+      if (lots.length > 0) return;
+      try {
+        const rows = await listLots();
+        setLots(rows);
+      } catch {
+        /* SSE will catch it */
+      }
+    }, 8000);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleRun = useCallback(
     async (args: { lotId: string; spec: File; coa: File; label: File }) => {
@@ -75,15 +165,26 @@ export default function App() {
       try {
         const result = await runLot(args);
         setLastRun(result);
-        // Optimistic refresh after a beat — the consumer materialization takes ~5s.
-        setTimeout(refresh, 1500);
+        // No need to refresh — the SSE feed will push the new row when
+        // leanview-consumer materializes it (typically <2s after /run).
+        // We still do a one-shot in case the feed has been paused.
+        if (!streamConnected) {
+          window.setTimeout(async () => {
+            try {
+              const rows = await listLots();
+              setLots(rows);
+            } catch {
+              /* SSE will catch it */
+            }
+          }, 2500);
+        }
       } catch (e: any) {
         setError(e?.message ?? String(e));
       } finally {
         setLoading(false);
       }
     },
-    [refresh]
+    [streamConnected]
   );
 
   return (
@@ -95,14 +196,8 @@ export default function App() {
           <span className="product">label hold</span>
         </div>
         <div className="topbar-actions">
-          <a
-            className="link"
-            href="https://frontend-472857763269.asia-southeast1.run.app/"
-            target="_blank"
-            rel="noreferrer"
-          >
-            self ↗
-          </a>
+          <span className={`live-dot ${streamConnected ? "live" : "dead"}`} aria-hidden="true" />
+          <span className="muted">{streamConnected ? "live" : "offline"}</span>
           <ThemeToggle theme={theme} onChange={setTheme} />
         </div>
       </header>
@@ -148,8 +243,8 @@ export default function App() {
           <header className="panel-header">
             <h2>Recent verdicts</h2>
             <span className="muted">
-              {lots.length} lot{lots.length === 1 ? "" : "s"} · polling every{" "}
-              {POLL_INTERVAL_MS / 1000}s
+              {lots.length} lot{lots.length === 1 ? "" : "s"} ·{" "}
+              {streamConnected ? "live via Firestore CDC" : "reconnecting…"}
             </span>
           </header>
           <VerdictsTable
@@ -171,7 +266,7 @@ export default function App() {
       <footer className="footer">
         <span className="muted">
           label-hold · ADK SequentialAgent &gt; ParallelAgent &gt; matcher
-          LlmAgent &gt; LoopAgent &gt; poster
+          LlmAgent &gt; LoopAgent &gt; poster · CDC from Firestore to bus
         </span>
       </footer>
     </div>

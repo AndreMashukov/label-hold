@@ -22,7 +22,7 @@ function apiBase(): string {
   return base;
 }
 
-function url(path: string): string {
+export function url(path: string): string {
   const base = apiBase();
   if (!base) return path;
   return `${base}${path.startsWith("/") ? path : `/${path}`}`;

@@ -2,11 +2,13 @@
 """tests/smoke_end_to_end.py — full-stack smoke.
 
 Drives three lots (text + binary fixtures) through the dashboard BFF and
-asserts the entire chain is intact:
+asserts the entire chain is intact under the Firestore CDC architecture:
   1. POST /api/run on the dashboard -> forwards to adk-runtime
   2. adk-runtime ingests via Gemini Flash, computes verdict, writes lots/
-  3. bus fires -> leanview-consumer materializes lots-listen/
-  4. dashboard's /api/lots reflects the new row
+  3. Firestore Eventarc trigger on lots/{lot_id} fires → /__eventarc/publish
+     on adk-runtime → publishes lot.held/lot.released to label-hold-events
+  4. leanview-consumer materializes lots-listen/ in lean-db
+  5. dashboard's /api/lots reflects the new row (poll once for sanity)
 
 The script picks one HELD scenario (binary, multi-allergen) and one RELEASED
 (binary, all-declared). An INC scenario verifies the missing-document path.
@@ -67,6 +69,18 @@ def post_run(lot_id, spec, coa, label, st, ct, lt):
     return json.loads(out)
 
 
+def get_lots_db(lot_id):
+    """Read lots/{lot_id} (system of record). Used to verify the Firestore write."""
+    from google.cloud import firestore
+    client = firestore.Client(database="lots-db", project=PROJECT)
+    snap = client.collection("lots").document(lot_id).get()
+    if not snap.exists:
+        return None
+    d = snap.to_dict() or {}
+    d["lot_id"] = d.get("lot_id") or lot_id
+    return d
+
+
 def get_lean(lot_id, token):
     """Read lots-listen/{lot_id} on lean-db via the Firestore SDK.
 
@@ -105,23 +119,35 @@ def main():
             t0 = time.time()
             resp = post_run(lot_id, spec, coa, label, st, ct, lt)
             dt = time.time() - t0
-            print(f"  /api/run ({dt:.1f}s): status={resp['status']} write_id={resp['write_id'][:12]}… bus_message_id={resp.get('bus_message_id')}")
+            print(f"  /api/run ({dt:.1f}s): status={resp['status']} write_id={resp['write_id'][:12]}…")
             assert resp["status"] == expected, \
                 f"verdict {resp['status']} != expected {expected}"
-            assert resp.get("bus_message_id"), "missing bus_message_id"
             assert resp.get("write_id"), "missing write_id"
+            # /api/run no longer returns bus_message_id — the Eventarc
+            # trigger is the sole producer of the lot.* event.
 
-            # Wait for leanview-consumer to materialize
+            # Wait for the Firestore write to appear in lots/ (sanity check
+            # that the agent committed the verdict).
             row = None
-            for attempt in range(10):
-                row = get_lean(lot_id, token)
-                if row and row.get("fields", {}).get("status"):
+            for attempt in range(5):
+                row = get_lots_db(lot_id)
+                if row:
                     break
-                time.sleep(2)
-            assert row is not None, f"lots-listen/{lot_id} not materialized"
-            fields = row["fields"]
-            # get_lean wraps SDK dict under {"fields": ...} for symmetry; values
-            # are now SDK-native (strings, not REST stringValue wrappers).
+                time.sleep(1)
+            assert row is not None, f"lots/{lot_id} not visible after /api/run"
+            print(f"  lots-db lots/{lot_id}: status={row.get('status')} write_id={row.get('write_id', '')[:12]}…")
+
+            # Wait for the Eventarc CDC chain: trigger fires → /__eventarc/publish
+            # → bus publish → leanview-consumer materializes lots-listen/.
+            # Poll up to 20s; the typical latency is 2-5s.
+            lean = None
+            for attempt in range(20):
+                lean = get_lean(lot_id, token)
+                if lean and lean.get("fields", {}).get("status"):
+                    break
+                time.sleep(1)
+            assert lean is not None, f"lots-listen/{lot_id} not materialized (CDC chain failed)"
+            fields = lean["fields"]
             actual_status = fields.get("status")
             actual_wid = fields.get("write_id")
             print(f"  lean-db lots-listen: status={actual_status} write_id={(actual_wid or '')[:12]}…")
@@ -129,6 +155,13 @@ def main():
                 f"lean status {actual_status} != {expected}"
             assert actual_wid == resp["write_id"], \
                 f"lean write_id {actual_wid} != adk write_id {resp['write_id']}"
+            # CDC provenance: lean row's payload should carry cdc=True.
+            # (Under the dual-write architecture the poster stamped
+            # bus_message_id; under CDC we publish from the Eventarc sink
+            # which sets cdc=True on the envelope.)
+            # Note: cdc field may or may not survive into the lean row
+            # depending on the consumer's merge logic, so we don't assert
+            # here. The end-to-end status+write_id match is sufficient.
         except AssertionError as e:
             print(f"  FAIL: {e}")
             failures.append((lot_id, str(e)))

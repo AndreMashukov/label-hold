@@ -522,7 +522,10 @@ resource "google_eventarc_trigger" "bus" {
 resource "google_eventarc_trigger" "firestore" {
   for_each = var.enable_firestore_trigger ? toset(var.firestore_trigger_event_types) : toset([])
   project  = var.project_id
-  name     = "${var.service_name}-firestore-${replace(each.value, ".", "-")}"
+  # Eventarc trigger names are capped at 63 chars. Use only the suffix
+  # of the event type (after the last `.`) so the full identifier stays
+  # well under the limit even for long service names like "adk-runtime".
+  name     = "${var.service_name}-fs-${element(split(".", each.value), length(split(".", each.value)) - 1)}"
   location = var.firestore_location
 
   matching_criteria {
@@ -543,6 +546,7 @@ resource "google_eventarc_trigger" "firestore" {
     cloud_run_service {
       service = google_cloud_run_v2_service.this.name
       region  = var.region
+      path    = "/__eventarc/publish"
     }
   }
 

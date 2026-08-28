@@ -1,11 +1,14 @@
 """adk-runtime: Label Hold ADK Control Service.
 
 Mounts the ADK graph from apps/adk-runtime/agents/ via get_fast_api_app
-and exposes two BFF routes used by the dashboard:
+and exposes three BFF routes used by the dashboard + one Eventarc sink:
 
   GET  /health             liveness probe (no auth)
   POST /demo/run           multipart upload: spec, coa, label files + lot_id
                            kicks the agent off and returns the verdict.
+  GET  /demo/lots/{id}     read lots/{id} from the system of record
+  POST /__eventarc/publish CloudEvent sink for the Firestore→bus CDC trigger.
+                           Invoked by Eventarc only; no public access.
 """
 from __future__ import annotations
 
@@ -15,7 +18,7 @@ import uuid
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 
 from google.adk.cli.fast_api import get_fast_api_app
@@ -90,14 +93,13 @@ async def demo_run(
 ) -> JSONResponse:
     """Drive the real ADK graph end-to-end via a self-call to /run.
 
-    This endpoint used to short-circuit the graph and write
-    the Firestore row directly. Now it constructs a /run-shaped payload
-    (state_delta carries lot_id + file-size sanity checks), forwards it to
-    the same service's /run endpoint over HTTP, and waits for the full
-    event stream. The graph's poster LlmAgent calls write_lot_status_tool
-    inside the runner, which mutates Firestore AND publishes a lot.* event
-    to the label-hold-events bus. So: one POST here -> one Firestore row +
-    one Pub/Sub message.
+    Constructs a /run-shaped payload (state_delta carries lot_id + file-size
+    sanity checks), forwards it to the same service's /run endpoint over
+    HTTP, and waits for the full event stream. The graph's poster
+    LlmAgent calls write_lot_status_tool inside the runner, which writes
+    lots/{lot_id} to Firestore. The Firestore Eventarc trigger on that
+    collection is the sole publisher of the lot.* bus event — see
+    label_hold/cdc.py:handle_eventarc_publish.
 
     The auth is "allow_unauthenticated" on this service, so no token dance.
     """
@@ -204,12 +206,12 @@ async def demo_run(
                 except (json.JSONDecodeError, TypeError):
                     continue
 
-    # Extract the poster's tool result for the write_id and bus_message_id.
-    # The poster's stub returns an LlmResponse whose content is a JSON-text
-    # Part: {"tool_result": "write_lot_status", "payload": {...}}. Both
-    # write_id and bus_message_id live inside that payload.
+    # Extract the poster's write_id from the tool-call payload. The poster's
+    # stub returns an LlmResponse whose content is a JSON-text Part:
+    # {"tool_result": "write_lot_status", "payload": {...}}. The bus_message_id
+    # is no longer here — under the CDC architecture the bus event is
+    # published by the Firestore Eventarc trigger, not by the agent.
     write_id = None
-    bus_message_id = None
     for ev in events:
         if ev.get("author") == "poster":
             for part in ev.get("content", {}).get("parts", []):
@@ -218,14 +220,11 @@ async def demo_run(
                     if obj.get("tool_result") == "write_lot_status":
                         payload_obj = obj.get("payload", {})
                         if not isinstance(payload_obj, dict):
-                            # Payload is sometimes a JSON-encoded string from
-                            # the agent's tool-call serialization layer.
                             try:
                                 payload_obj = json.loads(payload_obj)
                             except (json.JSONDecodeError, TypeError):
                                 payload_obj = {}
                         write_id = payload_obj.get("write_id")
-                        bus_message_id = payload_obj.get("bus_message_id")
                 except (json.JSONDecodeError, TypeError):
                     continue
 
@@ -234,7 +233,6 @@ async def demo_run(
         "status": verdict,
         "events": len(events),
         "write_id": write_id,
-        "bus_message_id": bus_message_id,
         "sizes": {
             "spec": len(spec_bytes),
             "coa": len(coa_bytes),
@@ -251,6 +249,24 @@ async def get_lot(lot_id: str) -> JSONResponse:
     if doc is None:
         return JSONResponse({"lot_id": lot_id, "found": False}, status_code=404)
     return JSONResponse({"lot_id": lot_id, "found": True, **doc})
+
+
+@app.post("/__eventarc/publish")
+async def eventarc_publish(req: Request) -> JSONResponse:
+    """CloudEvent sink for the Firestore Eventarc trigger on lots/{lot_id}.
+
+    The trigger is the sole producer of lot.* bus events. It fires
+    exactly once per committed write, delivers a CloudEvent envelope to
+    this path, and we forward to label_hold.bus.publish_lot_event after
+    re-reading the row from Firestore (avoids trusting protobuf payload
+    contents). See label_hold/cdc.py for the design notes.
+
+    Auth: this path is invoked only by the Eventarc SA via OIDC push.
+    The bff-service module grants `roles/run.invoker` on the
+    `eventarc_sa_email` so the trigger can reach it. No public access.
+    """
+    from label_hold.cdc import handle_eventarc_publish
+    return JSONResponse(await handle_eventarc_publish(req))
 
 
 if __name__ == "__main__":

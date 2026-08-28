@@ -108,7 +108,9 @@ module "adk_runtime" {
   service_account_prefix = "lh"
   image                  = var.adk_runtime_image
 
-  # We don't use Eventarc. Module requires these args; empty list disables.
+  # The Module-level event_hub wiring stays required for compatibility.
+  # The adk-runtime service does NOT consume bus events — it produces them
+  # via the Firestore CDC trigger below.
   events_topic_id           = module.event_hub.topic_id
   events_topic_name         = module.event_hub.topic_name
   subscribes_to_event_types = []
@@ -120,8 +122,20 @@ module "adk_runtime" {
 
   firestore_database_id    = "lots-db"
   firestore_location       = var.region
-  enable_firestore_trigger = false
-  enable_pubsub_publisher  = true # writes hold.opened / lot.released
+  # CDC: Firestore Eventarc trigger on lots/{lot_id} is the sole producer
+  # of lot.* events on the bus. The trigger delivers CloudEvents to
+  # /__eventarc/publish on this same service, which then publishes to
+  # label-hold-events. See apps/adk-runtime/label_hold/cdc.py.
+  enable_firestore_trigger       = true
+  firestore_trigger_path_pattern  = "lots/{lot_id}"
+  firestore_trigger_event_types   = [
+    "google.cloud.firestore.document.v1.created",
+    "google.cloud.firestore.document.v1.updated",
+  ]
+  # The runtime SA still needs roles/pubsub.publisher on the topic to
+  # publish from /__eventarc/publish. The bff-service module grants the
+  # project-level role; the per-topic binding is added below.
+  enable_pubsub_publisher  = true
 
   env_vars = merge(local.common_service_env, {
     SERVICE_NAME       = "adk-runtime"
@@ -196,7 +210,9 @@ module "dashboard" {
   create_firestore_database = false # leanview_consumer is the real owner
 
   env_vars = merge(local.common_service_env, {
-    SERVICE_NAME = "dashboard"
+    SERVICE_NAME         = "dashboard"
+    ADK_RUNTIME_URL      = module.adk_runtime.service_url
+    FIRESTORE_DATABASE   = "lean-db"
   })
   secret_env_vars = local.smoke_test_secret_env
 

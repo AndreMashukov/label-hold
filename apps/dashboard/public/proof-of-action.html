@@ -137,7 +137,7 @@ async function runLot(lotId, fixtureRoot, ext) {
     append(`HTTP ${r.status} — ${JSON.stringify(j).slice(0, 200)}`, "err");
     return;
   }
-  append(`HTTP 200 in ${dt}s — status=${j.status} write_id=${j.write_id.slice(0,12)}… bus_message_id=${j.bus_message_id}`, "ok");
+  append(`HTTP 200 in ${dt}s — status=${j.status} write_id=${j.write_id.slice(0,12)}…`, "ok");
   append(`  events=${j.events}  sizes=${JSON.stringify(j.sizes)}`, "muted");
   return j;
 }
@@ -164,13 +164,43 @@ async function loadOne(lotId) {
   fs_append(j);
 }
 
+// Live feed: the dashboard BFF holds a Firestore on_snapshot() watch on
+// lots-listen/. Every lean-row write arrives here as a `change` SSE event;
+// the first event is a `snapshot` carrying the initial set.
+function connectStream() {
+  let es;
+  try {
+    es = new EventSource("/api/stream");
+  } catch (e) {
+    setTimeout(connectStream, 2000);
+    return;
+  }
+  es.addEventListener("snapshot", (ev) => {
+    try {
+      const msg = JSON.parse(ev.data);
+      pollLots();  // re-render the table from the canonical list
+    } catch { /* ignore */ }
+  });
+  es.addEventListener("change", (ev) => {
+    try {
+      const msg = JSON.parse(ev.data);
+      if (msg.type === "REMOVED") return;
+      if (msg.row) pollLots();
+    } catch { /* ignore */ }
+  });
+  es.addEventListener("error", () => {
+    if (es) { es.close(); es = null; }
+    setTimeout(connectStream, 2000);
+  });
+}
+
 async function main() {
   append("Label Hold — Proof of Action session starting", "step");
   append(`Dashboard: ${DASH}`, "muted");
   append("", "muted");
 
   await pollLots();
-  setInterval(pollLots, 4000);
+  connectStream();
 
   // Demo sequence
   append("=== Lot 1: held (multi-allergen partial declaration) ===", "step");

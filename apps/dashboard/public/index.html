@@ -251,33 +251,92 @@
     try {
       const r = await fetch("/api/lots");
       const j = await r.json();
-      const tbody = document.getElementById("lots-body");
-      if (!j.lots || j.lots.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="empty">No lots yet. Drop three files above to run the gate.</td></tr>';
-        return;
-      }
-      tbody.innerHTML = j.lots.map(row => {
-        const status = row.status || "?";
-        const undecl = (row.undeclared || []);
-        const reason = row.reason || "";
-        const summary = row.summary || "";
-        const updated = row.updated_at ? new Date(row.updated_at).toLocaleString() : "";
-        return `<tr>
-          <td><code>${row.lot_id}</code></td>
-          <td><span class="pill ${status}">${status.toUpperCase()}</span></td>
-          <td>${undecl.length ? `<span class="undeclared">${undecl.join(", ")}</span>` : '<span class="empty">—</span>'}</td>
-          <td>${reason}</td>
-          <td>${summary ? `<span class="summary">${summary}</span>` : '<span class="empty">—</span>'}</td>
-          <td>${updated}</td>
-        </tr>`;
-      }).join("");
+      renderLots(j.lots || []);
     } catch (e) {
       document.getElementById("lots-body").innerHTML =
         `<tr><td colspan="5" class="empty">Firestore read failed: ${e}</td></tr>`;
     }
   }
+
+  function renderLots(lots) {
+    const tbody = document.getElementById("lots-body");
+    if (!lots || lots.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="empty">No lots yet. Drop three files above to run the gate.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = lots.map(row => {
+      const status = row.status || "?";
+      const undecl = (row.undeclared || []);
+      const reason = row.reason || "";
+      const summary = row.summary || "";
+      const updated = row.updated_at ? new Date(row.updated_at).toLocaleString() : "";
+      return `<tr>
+        <td><code>${row.lot_id}</code></td>
+        <td><span class="pill ${status}">${status.toUpperCase()}</span></td>
+        <td>${undecl.length ? `<span class="undeclared">${undecl.join(", ")}</span>` : '<span class="empty">—</span>'}</td>
+        <td>${reason}</td>
+        <td>${summary ? `<span class="summary">${summary}</span>` : '<span class="empty">—</span>'}</td>
+        <td>${updated}</td>
+      </tr>`;
+    }).join("");
+  }
+
+  function setLive(state) {
+    const dot = document.querySelector("header .live-dot");
+    const label = document.getElementById("live-status");
+    if (!dot || !label) return;
+    if (state === "live") {
+      dot.classList.add("live");
+      dot.classList.remove("dead");
+      label.textContent = "live · SSE";
+    } else {
+      dot.classList.add("dead");
+      dot.classList.remove("live");
+      label.textContent = "offline · reconnecting…";
+    }
+  }
+
+  // Open the SSE connection. The dashboard BFF streams every change to
+  // lots-listen/ as the leanview-consumer materializes them. The first
+  // event is a `snapshot` containing the initial set of rows; subsequent
+  // events are single `change` events.
+  let es;
+  function connect() {
+    try {
+      es = new EventSource("/api/stream");
+    } catch (e) {
+      setLive("offline");
+      setTimeout(connect, 2000);
+      return;
+    }
+    es.addEventListener("open", () => setLive("live"));
+    es.addEventListener("snapshot", (ev) => {
+      try {
+        const msg = JSON.parse(ev.data);
+        renderLots(msg.rows || []);
+      } catch { /* ignore */ }
+    });
+    es.addEventListener("change", (ev) => {
+      try {
+        const msg = JSON.parse(ev.data);
+        if (msg.type === "REMOVED") return;
+        if (msg.row) {
+          // Replace-by-id: re-render is simpler than DOM diff for v1.
+          loadLots();
+        }
+      } catch { /* ignore */ }
+    });
+    es.addEventListener("error", () => {
+      setLive("offline");
+      if (es) { es.close(); es = null; }
+      setTimeout(connect, 2000);
+    });
+  }
+
+  // Initial fetch (so the page paints immediately if SSE takes a beat),
+  // then defer to the streaming feed.
   loadLots();
-  setInterval(loadLots, 5000);
+  connect();
 </script>
 </body>
 </html>
