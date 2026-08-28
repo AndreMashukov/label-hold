@@ -162,6 +162,7 @@ export default function App() {
     async (args: { lotId: string; spec: File; coa: File; label: File }) => {
       setLoading(true);
       setError(null);
+      setLastRun(null);
       try {
         const result = await runLot(args);
         setLastRun(result);
