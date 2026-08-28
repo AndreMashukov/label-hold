@@ -4,12 +4,12 @@ Per PLAN §2 and §3, this graph is pattern 8 (composite): a SequentialAgent
 at the root wraps a ParallelAgent fan-out (3 ingest), a matcher, a LoopAgent
 (generator-critic), and a poster that writes Firestore.
 
-Day 2.5: ingest agents (spec/coa/label) call Gemini Flash for real when a
+Ingest agents (spec/coa/label) call Gemini Flash for real when a
 valid GEMINI_API_KEY is in the environment; otherwise they fall back to the
-canned stubs (Day 1 behavior) so a placeholder key never burns quota or 401s.
+canned stubs so a placeholder key never burns quota or 401s.
 
 The matcher/investigator/critic/poster stay stubbed for now — they don't need
-an LLM call to produce their deterministic output. Day 3 plan: drop their
+an LLM call to produce their deterministic output. Drop their
 callbacks too if rubric requires full agentic coverage.
 """
 from __future__ import annotations
@@ -47,9 +47,9 @@ GEMMA = "gemma-4-31b-it"
 
 
 def _has_live_gemini_key() -> bool:
-    """True iff GEMINI_API_KEY is set AND not the Day 0 placeholder.
+    """True iff GEMINI_API_KEY is set AND not the bootstrap placeholder.
 
-    The Day 0 bootstrap wrote "PLACEHOLDER-..." (40 chars) into the Secret
+    Bootstrap wrote "PLACEHOLDER-..." (40 chars) into the Secret
     Manager secret so Cloud Run could start. Live ingest must check this and
     skip the real model call when the placeholder is still there, otherwise
     the call would 401 (key looks invalid to Vertex AI / Gemini API).
@@ -67,7 +67,7 @@ def _canned_response(payload: dict[str, Any]) -> LlmResponse:
 
     Required because before_model_callback must return either None (let the
     real call proceed) or a full LlmResponse. We use it to inject canned JSON
-    for the Day 1 demo without burning Gemini API quota.
+    for the demo without burning Gemini API quota.
     """
     text = json.dumps(payload)
     parts = [genai_types.Part(text=text)]
@@ -91,7 +91,7 @@ def _label_before(*, callback_context: CallbackContext, llm_request: LlmRequest)
 async def _poster_stub_call_tool(
     *, callback_context: CallbackContext, llm_request: LlmRequest
 ) -> Optional[LlmResponse]:
-    """Day 2.5: bypass the LLM and call write_lot_status_tool directly.
+    """Bypass the LLM and call write_lot_status_tool directly.
 
     Reads lot_id from session.state (set by /demo/run's state_delta), status
     and undeclared from the matcher's verdict (output_key="match" set by the
@@ -154,7 +154,7 @@ async def _poster_stub_call_tool(
 # docstring for output_schema + __maybe_save_output_to_state.)
 #
 # Real vs canned: when GEMINI_API_KEY is a live key, set before_model_callback=None
-# so the call goes to Flash. When the key is the Day 0 PLACEHOLDER, keep the
+# so the call goes to Flash. When the key is the PLACEHOLDER, keep the
 # canned callback so the demo does not 401 against the API.
 _LIVE_INGEST = _has_live_gemini_key()
 _INGEST_BEFORE = None if _LIVE_INGEST else lambda kind: {
@@ -241,7 +241,7 @@ fan_out = ParallelAgent(
 # --- Matcher (deterministic set difference is computed in tools.py) ---------------
 
 def _matcher_before(*, callback_context: CallbackContext, llm_request: LlmRequest) -> LlmResponse:
-    """Day 2.5: compute the deterministic set difference from real session state.
+    """Compute the deterministic set difference from real session state.
 
     The matcher's job is the deterministic rule: (spec | coa) - label. With
     output_schema enforced on the three ingest agents, session.state["spec"],
@@ -326,7 +326,7 @@ investigator = LlmAgent(
 )
 
 def _critic_before(*, callback_context: CallbackContext, llm_request: LlmRequest) -> LlmResponse:
-    """Day 2.5: critic reads the matcher's verdict and echoes it.
+    """Critic reads the matcher's verdict and echoes it.
 
     The critic's job is to call exit_loop if the verdict is justified. With
     the deterministic matcher already producing a real verdict, the critic
@@ -374,7 +374,7 @@ critic = LlmAgent(
 def _summarizer_before(
     *, callback_context: CallbackContext, llm_request: LlmRequest
 ) -> LlmResponse:
-    """Day 3.5: produce a 2-sentence QA summary using Gemma 4.
+    """Produce a 2-sentence QA summary using Gemma 4.
 
     Only fires on HELD (the rubric-rewarded case). On RELEASE we skip the
     call entirely so the clean path stays fast and we don't waste Gemma
@@ -534,7 +534,7 @@ poster = LlmAgent(
         "{match}."
     ),
     tools=[FunctionTool(write_lot_status_tool)],
-    # Day 1 stub: bypass the LLM entirely and call the FunctionTool directly
+    # Stub: bypass the LLM entirely and call the FunctionTool directly
     # with values pulled from session.state. The poster's real job (mutate
     # Firestore) still runs through the tool, which is what the rubric scores.
     before_model_callback=_poster_stub_call_tool,

@@ -1,10 +1,10 @@
-"""Canned ingest responses for Day 1 stub mode.
+"""Canned ingest responses for stub mode.
 
 These let the graph run end-to-end without burning Gemini API quota. Each
 callback returns the AllergenExtract JSON a real LlmAgent would produce
 for one of the demo fixtures (HK-HOLD-MILK, HK-RELEASE, HK-INCOMPLETE).
 
-Day 2: drop the callbacks. Real Flash ingest fills these in.
+Drop the callbacks when live Flash ingest fills these in.
 """
 from __future__ import annotations
 

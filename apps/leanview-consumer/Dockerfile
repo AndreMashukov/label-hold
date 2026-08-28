@@ -1,5 +1,5 @@
 # Multi-stage Dockerfile for leanview-consumer (Python stub).
-# Day 2 wires the Pub/Sub push handler + Firestore writer.
+# Wires the Pub/Sub push handler + Firestore writer.
 # Build context = repo root, so COPY paths are namespaced under apps/leanview-consumer/.
 FROM python:3.12-slim AS builder
 WORKDIR /workspace

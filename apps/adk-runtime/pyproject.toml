@@ -1,7 +1,7 @@
 [project]
 name = "adk-runtime"
 version = "0.1.0"
-description = "Label Hold ADK Control Service (Day 1: graph + canned ingest)."
+description = "Label Hold ADK Control Service (graph + canned ingest)."
 requires-python = ">=3.12"
 dependencies = [
   "google-adk[extensions]>=2.7.1",

@@ -1,5 +1,5 @@
 # Multi-stage Dockerfile for the dashboard (FastAPI app).
-# Day 3: replaced the nginx static stub. The app serves both the SPA shell
+# The app serves both the SPA shell
 # (at /) and the JSON proxy/read endpoints (/api/run, /api/lots, /api/lots/{id}).
 #
 # Build context = repo root so COPY paths resolve under apps/dashboard/.

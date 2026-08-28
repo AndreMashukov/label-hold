@@ -1,4 +1,4 @@
-"""adk-runtime: Label Hold ADK Control Service (Day 1 host).
+"""adk-runtime: Label Hold ADK Control Service.
 
 Mounts the ADK graph from apps/adk-runtime/agents/ via get_fast_api_app
 and exposes two BFF routes used by the dashboard:
@@ -39,7 +39,7 @@ def _validate_env() -> None:
     """
     _env_or_die("GCP_PROJECT_ID")
     _env_or_die("FIRESTORE_DATABASE", "lots-db")
-    # GEMINI_API_KEY is optional on Day 1 (canned stubs). Warn but do not crash.
+    # GEMINI_API_KEY is optional (canned stubs). Warn but do not crash.
     if not os.environ.get("GEMINI_API_KEY"):
         # Visible in /health so operators know they are on stub mode.
         os.environ["LABEL_HOLD_STUB_MODE"] = "1"
@@ -51,9 +51,9 @@ _validate_env()
 _adk_app = get_fast_api_app(
     agents_dir=os.path.join(APP_DIR, "agents"),
     session_service_uri=f"sqlite:///{os.environ.get('SESSION_DB_PATH', '/tmp/sessions.db')}",
-    artifact_service_uri=None,  # InMemoryArtifactService by default; OK for Day 1
+    artifact_service_uri=None,  # InMemoryArtifactService by default
     web=False,
-    allow_origins=["*"],  # Demo only. Tighten on Day 3.
+    allow_origins=["*"],  # Demo only. Tighten for production.
     host="0.0.0.0",
     port=int(os.environ.get("PORT", "8080")),
     auto_create_session=True,
@@ -90,7 +90,7 @@ async def demo_run(
 ) -> JSONResponse:
     """Drive the real ADK graph end-to-end via a self-call to /run.
 
-    Day 2 wire-up: this endpoint used to short-circuit the graph and write
+    This endpoint used to short-circuit the graph and write
     the Firestore row directly. Now it constructs a /run-shaped payload
     (state_delta carries lot_id + file-size sanity checks), forwards it to
     the same service's /run endpoint over HTTP, and waits for the full

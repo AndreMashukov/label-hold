@@ -1,7 +1,7 @@
 """Label Hold Dashboard BFF — single FastAPI app serving both the UI and the
 /api/lots JSON endpoint that reads from the lean-db Firestore read model.
 
-Day 3 wire-up: replaces the Day 0 nginx static stub. The frontend lives at
+The frontend lives at
 / (single-page app), the JSON API at /api/lots and /api/lots/{lot_id}.
 
 Auth model:
@@ -29,7 +29,7 @@ logger = None  # uvicorn handles logging config
 
 app = FastAPI(title="label-hold-dashboard", version="0.2.0")
 
-# Day 4.5: allow the React frontend (apps/frontend, deployed as its own
+# Allow the React frontend (apps/frontend, deployed as its own
 # Cloud Run service) to call the dashboard BFF cross-origin. The dashboard
 # SPA at "/" still uses same-origin so this is just a safety net. We allow
 # any origin because the demo is unauthenticated by design (see /api/run
@@ -163,7 +163,7 @@ PUBLIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "public")
 if os.path.isdir(PUBLIC_DIR):
     app.mount("/static", StaticFiles(directory=PUBLIC_DIR), name="static")
 
-# --- Bundled demo fixtures (Day 3 Proof of Action harness) ---
+# --- Bundled demo fixtures (Proof of Action harness) ---
 # Path resolution: the dashboard image bundles /app/public/ but fixtures live
 # at /opt/data/serverless/label-hold/fixtures. In Cloud Run the dashboard
 # image doesn't carry fixtures. We expose a tiny static-style route that
@@ -183,7 +183,7 @@ async def index() -> HTMLResponse:
 
 @app.get("/proof-of-action.html", response_class=HTMLResponse)
 async def proof_of_action() -> HTMLResponse:
-    """The Day 3 demo harness: drives two lots through /api/run and shows
+    """The demo harness: drives two lots through /api/run and shows
     terminal log + dashboard verdicts + Firestore raw reads in one pane."""
     with open(os.path.join(PUBLIC_DIR, "proof-of-action.html"), "r", encoding="utf-8") as f:
         return HTMLResponse(f.read())
