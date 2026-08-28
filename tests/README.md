@@ -1,5 +1,4 @@
-# Day 0 placeholder. The pytest suite runs on Day 1 onward once the
-# ADK graph and Firestore writes exist. Four test files planned:
+# The pytest suite covers the ADK graph and Firestore writes. Four test files planned:
 #
 #   test_allergens.py    # set difference is fail-closed
 #   test_graph.py        # root is Sequential wrapping Parallel + Loop

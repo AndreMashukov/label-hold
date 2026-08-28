@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tests/smoke_end_to_end.py — Day 3 full-stack smoke.
+"""tests/smoke_end_to_end.py — full-stack smoke.
 
 Drives three lots (text + binary fixtures) through the dashboard BFF and
 asserts the entire chain is intact:

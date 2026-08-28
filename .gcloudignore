@@ -36,7 +36,7 @@ __pycache__/
 .restart_last_processed.json
 .DS_Store
 
-# Day 0 nginx config no longer used.
+# nginx config no longer used.
 apps/dashboard/nginx.conf
 
 # Fixtures outside the two we bundle in the dashboard image.

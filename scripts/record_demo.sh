@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# scripts/record_demo.sh - Day 4 demo recorder skeleton.
+# scripts/record_demo.sh - demo recorder skeleton.
 #
-# Day 4 deliverable is an unedited demo video showing:
+# The deliverable is an unedited demo video showing:
 #   1. the .run.app URL in the address bar
 #   2. terminal output of the pipeline running live
 #   3. the dashboard UI updating
@@ -24,7 +24,7 @@
 #                         (default: x-terminal-emulator)
 #   RECORDER_CMD          ffmpeg/obs/etc — left to the operator
 #
-# This script is intentionally a skeleton: Day 4 capture needs actual tooling
+# This script is intentionally a skeleton: capture needs actual tooling
 # installed on the recording host. Re-run with real RECORDER_CMD once the host
 # is set up.
 

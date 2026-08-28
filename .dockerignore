@@ -46,7 +46,7 @@ fixtures/hk-synonym-stress/
 fixtures/hk-multi-allergen/README.md
 fixtures/hk-multi-allergen-released/README.md
 
-# Day 0 nginx config no longer used.
+# nginx config no longer used.
 apps/dashboard/nginx.conf
 
 # Tests run elsewhere.

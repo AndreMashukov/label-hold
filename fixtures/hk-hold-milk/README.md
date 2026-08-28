@@ -1,5 +1,5 @@
-# Day 0 placeholder. The three fixture triples (HK-HOLD-MILK, HK-RELEASE,
-# HK-INCOMPLETE) are created on Day 2 with synthetic-but-plausible
+# The three fixture triples (HK-HOLD-MILK, HK-RELEASE,
+# HK-INCOMPLETE) use synthetic-but-plausible
 # spec PDFs, CoA PDFs, and label photos. For now each directory exists
 # empty so the build script paths are stable.
 

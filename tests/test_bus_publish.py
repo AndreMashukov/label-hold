@@ -1,7 +1,7 @@
 """tests/test_bus_publish.py — prove that /demo/run drives the real ADK graph
 end-to-end AND that the bus publish fires.
 
-Day 2 wire-up test. Three scenarios:
+Three scenarios:
 
   1. HK-HOLD-MILK      — happy path, all docs present, milk undeclared on label -> held
   2. HK-RELEASE        — happy path, all clear                                  -> released
