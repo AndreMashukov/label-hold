@@ -7,8 +7,7 @@
 #   services (adk-runtime, dashboard, leanview-consumer) need their
 #   image reference in terraform/envs/dev/terraform.tfvars updated,
 #   then `terraform apply` must run. Without that, the running services
-#   stay pinned to the OLD Day 0 scaffold (sha256:0f88812a... for
-#   dashboard, sha256:c319950b... for adk-runtime), and the React SPA
+#   stay pinned to the old nginx stub image, and the React SPA
 #   sees an empty /api/lots.
 #
 # What it does:

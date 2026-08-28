@@ -163,11 +163,8 @@ async def handle_eventarc_publish(req: Request) -> dict[str, Any]:
         extra={
             "cdc": True,
             "ts": payload["ts"],
-            # Under the dual-write architecture the poster stamped this
-            # onto lots/{lot_id} before publishing. Under CDC we don't have
-            # it yet (single-shot publish); leanview-consumer's logs will
-            # show bus_message_id=None on this path. The row's write_id is
-            # the canonical idempotency key for downstream dedup.
+            # write_id on the lots row is the idempotency key. We do not
+            # stamp bus_message_id back onto the SoR document.
             "bus_message_id": None,
         },
     )

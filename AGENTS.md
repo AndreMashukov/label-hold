@@ -11,7 +11,8 @@ A lot-release gate for a 12-person co-packer. Three independent documents decide
 |---|---|---|---|
 | ADK Control Service | `apps/adk-runtime/` | `adk-runtime` | Cloud Run v2 + Firestore `lots-db` |
 | Lean-view consumer | `apps/leanview-consumer/` | `leanview-consumer` | Cloud Run v2 + Pub/Sub push + Firestore `lean-db` |
-| Dashboard BFF | `apps/dashboard/` | `dashboard` | Cloud Run v2 (nginx + HTML) + reads `lean-db` |
+| Dashboard BFF | `apps/dashboard/` | `dashboard` | Cloud Run v2 (FastAPI + SSE) + reads `lean-db` |
+| Frontend SPA | `apps/frontend/` | `frontend` | Cloud Run v2 (nginx static) |
 | Event hub | `terraform/modules/event-hub/` | n/a | Pub/Sub topic `label-hold-events` + DLQ |
 | Identity | `terraform/modules/identity/` | n/a | (kept for symmetry; not used in v1) |
 | BFF module | `terraform/modules/bff-service/` | n/a | Lifted from pastebin-app-gcp; extended for raw Pub/Sub push |
@@ -21,9 +22,10 @@ A lot-release gate for a 12-person co-packer. Three independent documents decide
 
 ## Live URLs (deployed)
 
-- adk-runtime:       https://adk-runtime-hnvjxkvfoq-as.a.run.app  (2026-08-26 12:55 digest `sha256:6d662096...`)
+- adk-runtime:       https://adk-runtime-hnvjxkvfoq-as.a.run.app
 - leanview-consumer: https://leanview-consumer-hnvjxkvfoq-as.a.run.app (IAM-protected, OIDC push from Pub/Sub only)
 - dashboard:         https://dashboard-hnvjxkvfoq-as.a.run.app
+- frontend:          https://frontend-hnvjxkvfoq-as.a.run.app
 - Pub/Sub topic:     label-hold-events (project serverless-503308)
 - Pub/Sub sub:       label-hold-lean-view-sub (push, OIDC)
 
@@ -34,12 +36,12 @@ A lot-release gate for a 12-person co-packer. Three independent documents decide
 - `GET /demo/lots/HK-HOLD-MILK` → full payload from Firestore (spec/CoA/label extracts + status + reason)
 - leanview-consumer `/pubsub/push` handler: still an ack-only stub (later wired to the materializer).
 
-**Bus publish from inside the graph (2026-08-27 02:09):**
-- `/demo/run` now self-calls `/run` instead of bypassing the graph. The poster LlmAgent's `write_lot_status_tool` mutates Firestore AND publishes a `lot.*` event to the `label-hold-events` topic.
-- `label_hold/bus.py` is the only place that imports `google-cloud-pubsub`. `publish_lot_event()` is fire-and-forget: errors are logged and swallowed so a Pub/Sub outage cannot fail the Firestore write.
-- `bus_message_id` is stamped into the Firestore row so the lean view can dedupe replays without an extra round-trip.
-- Live smoke: `tests/smoke_bus_publish.py` runs three lots through `/demo/run` and asserts the Firestore row + leanview-consumer OIDC push. Exits 0 on all-pass, 1 on first failure.
-- leanview-consumer log proves receipt: `INFO: 169.254.169.126:30748 - "POST /pubsub/push HTTP/1.1" 200 OK` within 90s of each `/demo/run`.
+**Bus publish (CDC, current):**
+- `/demo/run` self-calls `/run`. The poster `write_lot_status_tool` writes `lots/{lot_id}` only. It does not publish.
+- Firestore Eventarc (`document.created` / `document.updated` on `lots/{lot_id}`) POSTs to `/__eventarc/publish`. `label_hold/cdc.py` re-reads the row and calls `publish_lot_event()`.
+- `label_hold/bus.py` is the only place that imports `google-cloud-pubsub`. A failed publish returns None; the CDC handler returns 500 so Eventarc retries.
+- Downstream dedupe uses `write_id`. The dashboard streams `lots-listen` over SSE (`GET /api/stream`).
+- Live smoke: `tests/smoke_cdc.py` drives `/api/run` and waits for `/api/lots` to show the matching `write_id`.
 
 **Live Gemini ingest (gated on real key) (2026-08-27 02:51):**
 - `_has_live_gemini_key()` detects whether `GEMINI_API_KEY` starts with `PLACEHOLDER` (bootstrap sentinel). When the key is still the placeholder, ingest agents keep the canned stubs; the moment a real key lands in Secret Manager the agents flip to calling Gemini Flash with no further deploy.
@@ -73,7 +75,7 @@ A lot-release gate for a 12-person co-packer. Three independent documents decide
 
 **Gemma executive summary + proof-of-action harness (2026-08-27 06:35):**
 - New `summarizer` LlmAgent inserted between `hold_loop` and `poster`. Uses `gemma-4-31b-it` (resolved through the same `google-genai` client as Flash, no Vertex) and only fires on HELD lots — released lots skip the call to keep the clean path fast and avoid burning Gemma quota. Stores the 2-sentence paragraph under `output_key="summary"`.
-- The poster reads `session.state["summary"]` (defensively parsed as dict or JSON string), threads it into `write_lot_status(summary=...)`, which persists it on `lots/{lot_id}` AND publishes it in the bus event payload. The leanview-consumer materializer also persists `summary` on `lots-listen/{lot_id}`. Dashboard surfaces the summary in the recent verdicts table (new column).
+- The poster reads `session.state["summary"]` (defensively parsed as dict or JSON string), threads it into `write_lot_status(summary=...)`, which persists it on `lots/{lot_id}`. The CDC publish then includes `summary` in the bus event. The leanview-consumer materializer also persists `summary` on `lots-listen/{lot_id}`. Dashboard surfaces the summary in the recent verdicts table (new column).
 - Verified end-to-end with `HK-GEMMA-MULTI`: held, undeclared=[eggs, milk], summary="Lot HK-GEMMA-MULTI is on hold due to a labeling discrepancy. While the specification and CoA declare eggs and milk, these allergens are missing from the printed label." (167 chars from Gemma 4).
 - `HK-GEMMA-REL` (released) came back with `summary: ""` — Gemma skipped, as designed. The graph now emits `events=12` instead of 11 (one more node traversed).
 - `apps/dashboard/public/proof-of-action.html` is a 3-pane harness (terminal log + live verdicts + raw Firestore read) for the demo video. Bundled fixtures (`hk-multi-allergen/`, `hk-multi-allergen-released/`) are now part of the dashboard image so the harness runs without external file hosting. The dashboard serves them under `/fixtures/`.
@@ -91,7 +93,7 @@ A lot-release gate for a 12-person co-packer. Three independent documents decide
 2. **Three ingest agents, each with a unique `output_key`.** `spec`, `coa`, `label`. Parallel children must not share a key (ADK race). Downstream instructions literally contain `{spec} {coa} {label}`.
 3. **Match overlay is deterministic.** `(spec.allergens | coa.allergens) - label.allergens`. The matcher LLM explains. The set difference decides. Same precedence as the book's rule service: model can explain, never override.
 4. **`lots/` is the system of record; `lots-listen/` is the lean replicated read model.** Only `adk-runtime` writes `lots/`. Only `leanview-consumer` writes `lots-listen/`. The dashboard reads `lots-listen` via Firestore live subscribe.
-5. **No HTTP RPC between BFF services for verdict flow.** All inter-service mutation flows through Pub/Sub (publish from adk-runtime, push to leanview-consumer). The CPCQ Publish -> Consume leg is the only path.
+5. **No HTTP RPC between BFF services for verdict flow.** The command path writes `lots/`. Firestore Eventarc CDC publishes to Pub/Sub. `leanview-consumer` is the consume leg. The dashboard reads `lots-listen` (SSE), it never writes SoR.
 6. **Idempotent on `lot_id`.** Replaying HK-HOLD-MILK on the same `lot_id` produces exactly one row in `lots/` and one row in `lots-listen/` with the same `undeclared` list.
 
 ## Commands

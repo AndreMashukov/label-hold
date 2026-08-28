@@ -1,6 +1,7 @@
 """lean-view-consumer: Pub/Sub push -> Firestore lots-listen materializer.
 
-Takes the lot.* event published by adk-runtime's poster and
+Takes the lot.* event published by the Firestore CDC handler
+(`/__eventarc/publish` on adk-runtime) and
 upserts a denormalized row to lots-listen/{lot_id} in the lean-db Firestore
 database. The dashboard reads from lots-listen via Firestore live subscribe.
 

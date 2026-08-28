@@ -1,18 +1,19 @@
 """Pub/Sub publish helper for lot-release events.
 
-The poster's write_lot_status tool mutates Firestore AND publishes a
-`lot.held` / `lot.released` event to the `label-hold-events` topic so the
-leanview-consumer can materialize the lean read model. This file is the only
-place that owns the publish logic; lots.py calls publish_lot_event() and does
-not import google-cloud-pubsub directly.
+The Firestore Eventarc trigger on `lots/{lot_id}` is the sole producer of
+`lot.held` / `lot.released` events. The poster writes Firestore only.
+`label_hold/cdc.py` handles `/__eventarc/publish` and calls
+`publish_lot_event()` here. This file is the only place that imports
+`google-cloud-pubsub`.
 
 Design notes:
 - One synchronous publish per call (publisher.publish().result(timeout=5)).
   Async publisher is over-engineering for a low-rate gate; we publish at most
   a few events per minute.
-- Errors are caught and logged but never propagated. A Pub/Sub outage must
-  not fail the Firestore write (the system of record wins; the read model
-  will catch up via replay if we add one later).
+- `publish_lot_event` logs errors and returns None instead of raising. The
+  CDC handler turns None into HTTP 500 so Eventarc retries. The Firestore
+  write already committed in a different process; a bus outage must not
+  roll it back.
 - Topic name comes from EVENTHUB_TOPIC env var (set on the Cloud Run service
   by Terraform). Defaults to "label-hold-events" for local dev.
 """
@@ -89,7 +90,8 @@ def publish_lot_event(
         )
         return message_id
     except Exception as e:  # noqa: BLE001
-        # Never fail the surrounding Firestore write because the bus is down.
+        # CDC handler maps None to HTTP 500 so Eventarc retries. Do not raise
+        # here; the lots/ write already landed in another process.
         logger.exception(
             "bus.publish FAILED lot=%s status=%s err=%r",
             lot_id, status, e,

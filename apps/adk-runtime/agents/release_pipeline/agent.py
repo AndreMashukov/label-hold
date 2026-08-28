@@ -95,8 +95,8 @@ async def _poster_stub_call_tool(
 
     Reads lot_id from session.state (set by /demo/run's state_delta), status
     and undeclared from the matcher's verdict (output_key="match" set by the
-    matcher above), then invokes write_lot_status_tool which mutates Firestore
-    AND publishes to the bus.
+    matcher above), then invokes write_lot_status_tool which writes
+    `lots/{lot_id}`. Firestore Eventarc publishes the bus event.
 
     With output_schema enforced on the three ingest agents, session.state now
     holds real dicts; the contestant state["match"] may be a dict (preferred)

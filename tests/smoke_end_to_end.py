@@ -155,13 +155,7 @@ def main():
                 f"lean status {actual_status} != {expected}"
             assert actual_wid == resp["write_id"], \
                 f"lean write_id {actual_wid} != adk write_id {resp['write_id']}"
-            # CDC provenance: lean row's payload should carry cdc=True.
-            # (Under the dual-write architecture the poster stamped
-            # bus_message_id; under CDC we publish from the Eventarc sink
-            # which sets cdc=True on the envelope.)
-            # Note: cdc field may or may not survive into the lean row
-            # depending on the consumer's merge logic, so we don't assert
-            # here. The end-to-end status+write_id match is sufficient.
+            # CDC envelope sets cdc=True. Downstream dedupe is write_id.
         except AssertionError as e:
             print(f"  FAIL: {e}")
             failures.append((lot_id, str(e)))

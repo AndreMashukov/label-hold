@@ -77,6 +77,7 @@ flowchart TB
     subgraph CR["Cloud Run v2"]
       DASH["dashboard<br/>FastAPI BFF"]
       ADK["adk-runtime<br/>ADK composite graph"]
+      CDC["adk-runtime<br/>/__eventarc/publish"]
       CONS["leanview-consumer<br/>Pub/Sub push handler"]
     end
     subgraph FS["Firestore"]
@@ -90,13 +91,14 @@ flowchart TB
   FE -- "POST /api/run" --> DASH
   DASH -- "POST /demo/run" --> ADK
 
-  ADK -- "write_lot_status_tool" --> LOTDB
-  ADK -- "publish_lot_event" --> BUS
+  ADK -- "write lots/{id}" --> LOTDB
+  LOTDB -- "Eventarc document.written" --> CDC
+  CDC -- "publish_lot_event" --> BUS
   BUS -- "OIDC push" --> CONS
   CONS -- "upsert lots-listen" --> LEANDB
 
-  DASH -- "GET /api/lots (5s poll)" --> LEANDB
-  FE -- "GET /api/lots" --> DASH
+  DASH -- "on_snapshot lots-listen" --> LEANDB
+  FE -- "EventSource /api/stream" --> DASH
 
   classDef primary fill:#d97633,color:#fff,stroke:#b85a1c,stroke-width:1px
   classDef bff fill:#4a90c2,color:#fff,stroke:#2c5f86,stroke-width:1px
@@ -104,7 +106,7 @@ flowchart TB
   classDef bus fill:#888,color:#fff,stroke:#555,stroke-width:1px
 
   class ADK primary
-  class DASH,CONS bff
+  class DASH,CONS,CDC bff
   class LOTDB,LEANDB store
   class BUS bus
 ```
@@ -142,7 +144,7 @@ flowchart TB
 
   FAN --> INGEST
 
-  SEQ --> DONE(["bus_message_id + write_id"])
+  SEQ --> DONE(["write_id on lots/{id}"])
 
   classDef held fill:#fde4dd,color:#1a1815,stroke:#c4361a,stroke-width:1px
   classDef released fill:#dff1e6,color:#1a1815,stroke:#2f7d4f,stroke-width:1px
@@ -158,7 +160,8 @@ fans out to three ingest agents, a matcher `LlmAgent` that reads the three
 extracts from `session.state`, a `LoopAgent` that runs the critic+generator
 pair until the matcher exits with a confident HOLD or RELEASE, an optional
 `summarizer` that runs only on HELD, and finally a `poster` that writes
-Firestore and publishes the bus event.
+`lots/{lot_id}` and stops. Firestore Eventarc then invokes
+`/__eventarc/publish`, which publishes the bus event.
 
 Total nodes for the HELD path: 12 (3 ingest + 1 matcher + 2 hold_loop + 1
 critic_exit + 1 summarizer + 1 poster + final-state). The RELEASED path is
@@ -174,6 +177,7 @@ sequenceDiagram
   participant DASH as Dashboard BFF
   participant ADK as adk-runtime
   participant LOTDB as Firestore lots-db
+  participant CDC as Eventarc CDC
   participant BUS as Pub/Sub
   participant CONS as leanview-consumer
   participant LEANDB as Firestore lean-db
@@ -190,22 +194,25 @@ sequenceDiagram
   end
   ADK->>ADK: poster agent
   ADK->>LOTDB: write_lot_status_tool
-  ADK->>BUS: publish_lot_event fire-and-forget
+  LOTDB-->>CDC: document.created / updated
+  CDC->>ADK: POST /__eventarc/publish
+  ADK->>BUS: publish_lot_event
   ADK-->>DASH: status, undeclared, write_id
   DASH-->>FE: status, undeclared, write_id
   BUS->>CONS: OIDC push lot event
   CONS->>LEANDB: upsert lots-listen by lot_id
-  Note over FE,LEANDB: FE polls /api/lots every 5 seconds
-  FE->>DASH: GET /api/lots
-  DASH->>LEANDB: order_by ts DESC limit 50
-  DASH-->>FE: count and lots array
-  FE->>FE: render new row at top
+  Note over FE,LEANDB: dashboard watches lots-listen and streams SSE
+  FE->>DASH: EventSource GET /api/stream
+  DASH->>LEANDB: on_snapshot
+  DASH-->>FE: snapshot then change events
+  FE->>FE: render row at top
 ```
 
-The fire-and-forget on step 13 means a Pub/Sub outage does not fail the lot
-release — the primary write to `lots-db` already succeeded by then. The
-consumer catches up when Pub/Sub recovers. The `bus_message_id` is stamped
-onto the primary row so the consumer can dedupe redeliveries.
+The system-of-record write to `lots-db` is the only side effect of the poster.
+Eventarc then calls `/__eventarc/publish`, which publishes to the bus. If
+Pub/Sub is down, Eventarc retries the CDC handler; the primary row is
+already committed. Downstream dedupe uses `write_id`, not a stamped
+`bus_message_id` on the lots row.
 
 ### Multi-allergen set difference
 
@@ -463,7 +470,7 @@ label-hold/
 ├── label_hold/                # ADK graph code (release_pipeline)
 ├── scripts/                   # deploy / smoke / demo / fixture gen
 ├── terraform/                 # infra modules (event-hub, identity, bff-service)
-├── tests/                     # end-to-end smoke + bus publish tests
+├── tests/                     # end-to-end + CDC smoke
 ├── AGENTS.md                  # operational log (build state, gotchas)
 ├── README.md                  # this file
 └── .gcloudignore              # keep Cloud Build tarball small
@@ -508,11 +515,16 @@ normalizer is the second line of defense for stragglers.
 - **Two Firestores: `lots-db` is the system of record, `lean-db` is the
   read model.** Only `adk-runtime` writes `lots-db`. Only
   `leanview-consumer` writes `lean-db`. The dashboard reads `lean-db` via
-  `lots-listen/` with `order_by(ts DESC)`. This is the CPCQ
-  publish-consume pattern.
-- **Pub/Sub is fire-and-forget from the poster.** `publish_lot_event()`
-  swallows errors and stamps `bus_message_id` onto the Firestore row. A
-  Pub/Sub outage cannot fail a lot release.
+  `lots-listen/` via Firestore `on_snapshot` (SSE at `/api/stream`). This is
+  the CPCQ publish-consume pattern: command writes SoR, CDC publishes,
+  listener materializes the lean view.
+- **Pub/Sub is published only from the CDC handler.** `publish_lot_event()`
+  lives in `bus.py`. The poster never calls it. A Pub/Sub outage returns
+  500 from `/__eventarc/publish` so Eventarc retries; it cannot fail the
+  lot write.
+- **Live UI is SSE, not a 5s poll.** The React SPA opens
+  `EventSource` on the dashboard `/api/stream` (absolute BFF URL when the
+  frontend is its own Cloud Run service).
 - **Gemma only fires on HELD.** Released lots skip the second-model call
   entirely to keep the clean path fast and avoid burning Gemma quota.
 - **Idempotent on `lot_id`.** Replaying a lot on the same `lot_id` produces
@@ -541,7 +553,7 @@ normalizer is the second line of defense for stragglers.
   row.** Stale rows pre-dating the field break the query. Only use it when
   you control all writers (the leanview-consumer).
 
-See `AGENTS.md` for the full day-by-day build log and accumulated gotchas.
+See `AGENTS.md` for the operational log and accumulated gotchas.
 
 ---
 
